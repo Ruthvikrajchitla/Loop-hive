@@ -119,9 +119,15 @@ class AppConfig:
         default_factory=lambda: os.getenv("FUSION_AGGREGATOR", "nvidia-ultra")
     )
 
-    # Ebook rendering
+    # Ebook rendering & length (long-form products are generated chapter-by-chapter)
     ebook_pdf_enabled: bool = field(
         default_factory=lambda: os.getenv("EBOOK_PDF_ENABLED", "true").lower() in ("1", "true", "yes")
+    )
+    ebook_min_sections: int = field(  # chapters for a long-form product (ebook/guide/playbook)
+        default_factory=lambda: int(os.getenv("EBOOK_MIN_SECTIONS", "12"))
+    )
+    ebook_section_words: int = field(  # target words per chapter
+        default_factory=lambda: int(os.getenv("EBOOK_SECTION_WORDS", "900"))
     )
 
     # Content limits

@@ -14,6 +14,7 @@ from typing import Any
 import structlog
 
 from core.agent_base import AgentBase
+from core.config import config
 from core.loop_engine import ContextWindow, Verification
 
 logger = structlog.get_logger(__name__)
@@ -72,8 +73,15 @@ class ProductCreatorAgent(AgentBase):
             "research": research,
         }
 
+    # Product types that warrant a long, multi-chapter ebook.
+    LONG_FORM = {"ebook", "guide", "playbook", "master book", "master kit", "handbook", "course", "setup guide"}
+
+    def _is_long_form(self, product_type: str) -> bool:
+        pt = (product_type or "").lower()
+        return any(t in pt for t in self.LONG_FORM)
+
     async def reason(self, state: dict, goal: str) -> dict:
-        """Outline the digital product and structure the chapters or segments (Outline step)."""
+        """Outline the product. Long-form types get many chapters for a full ebook."""
         niche = state.get("niche", "AI Tools & Workflows")
         product_type = state.get("product_type", "guide")
         topic = state.get("topic", "")
@@ -84,66 +92,90 @@ class ProductCreatorAgent(AgentBase):
             f"{research[:6000]}\n\n" if research else ""
         )
 
+        long_form = self._is_long_form(product_type)
+        n_sections = config.ebook_min_sections if long_form else 6
+        size_hint = (
+            f"This is a full-length ebook — produce a comprehensive outline of AT LEAST {n_sections} "
+            f"substantial chapters (intro, multiple deep-dive chapters, practical/how-to chapters, "
+            f"examples/case studies, pitfalls, and a conclusion)."
+            if long_form else
+            f"Produce a focused outline of about {n_sections} sections."
+        )
+
         prompt = (
             f"Design a digital product in the niche '{niche}'.\n"
             f"Product Type: '{product_type}'.\n"
             f"Specific topic/angle: '{focus}'.\n\n"
             f"{research_block}"
             f"The product MUST be strictly about '{focus}' within the '{niche}' niche — do not "
-            f"introduce unrelated tools or topics. Identify the target audience's pain points, "
-            f"list core sections/chapters, and suggest a fair price ($5.00 - $29.00).\n\n"
+            f"introduce unrelated tools or topics. {size_hint} Identify audience pain points and "
+            f"suggest a fair price (${'15.00 - $39.00' if long_form else '5.00 - $19.00'}).\n\n"
             f"Output a JSON object containing:\n"
             f"- 'product_name': string (must reflect the topic '{focus}')\n"
             f"- 'niche': string\n"
             f"- 'target_price': float\n"
-            f"- 'outline': list of section dictionaries (each with 'title' and 'objectives')\n"
+            f"- 'outline': list of {n_sections}+ section dictionaries (each with 'title' and 'objectives')\n"
             f"- 'pain_points_solved': list of strings\n"
         )
 
-        response_json = await self.ask_llm_json(prompt, temperature=0.5)
+        response_json = await self.ask_llm_json(prompt, temperature=0.5, max_tokens=3000)
         return {
             "state": state,
             "outline": response_json,
+            "long_form": long_form,
         }
 
     async def act(self, plan: dict) -> dict:
-        """Draft the complete product content and sales page copy (Drafting & Sales Copy steps)."""
+        """Write the product chapter-by-chapter (for length), then the sales copy."""
         state = plan.get("state", {})
         outline = plan.get("outline", {})
+        long_form = plan.get("long_form", False)
         niche = state.get("niche", "General")
         product_type = state.get("product_type", "checklist")
+        topic = state.get("topic", "")
+        focus = topic or product_type
         product_name = outline.get("product_name", f"Ultimate {niche} Guide")
         price = float(outline.get("target_price", 9.0))
-
-        # Generate full product body
-        sections_str = "\n".join([
-            f"### {s.get('title')}\n- Objectives: {s.get('objectives')}"
-            for s in outline.get("outline", [])
-        ])
-
         research = state.get("research", "")
         research_block = (
-            f"RESEARCH (use these concrete facts, tools, and examples):\n{research[:9000]}\n\n"
+            f"RESEARCH (use these concrete facts, tools, examples — cite real tools):\n{research[:7000]}\n\n"
             if research else ""
         )
-        product_prompt = (
-            f"Write the COMPLETE, finished content of this digital product so a buyer could "
-            f"use it immediately:\n"
-            f"Name: {product_name}\n"
-            f"Type: {product_type}\n"
-            f"Niche: {niche}\n"
-            f"Outline:\n{sections_str}\n\n"
-            f"{research_block}"
-            f"STRICT OUTPUT RULES:\n"
-            f"- Output ONLY the finished document as clean, readable Markdown prose.\n"
-            f"- Use '#'/'##'/'###' headings, short paragraphs, bullet lists and numbered steps.\n"
-            f"- DO NOT output JSON, key/value data, or any ``` code fences around the document.\n"
-            f"- No placeholders — write the real, detailed, practical content with concrete examples, "
-            f"steps, and tips. Aim for a polished, sellable deliverable."
-        )
 
-        # Mixture-of-Agents fusion for the core deliverable (the sellable body).
-        product_body = self._strip_code_fence(await self.ask_llm_fused(product_prompt, temperature=0.6))
+        sections = outline.get("outline", []) or [{"title": product_name, "objectives": focus}]
+        target_words = config.ebook_section_words if long_form else max(350, config.ebook_section_words // 2)
+
+        # Generate each chapter in its own call so the book can run to many pages
+        # (a single call caps at ~5-6 pages of output).
+        parts: list[str] = []
+        covered: list[str] = []
+        for i, sec in enumerate(sections, 1):
+            sec_title = sec.get("title", f"Chapter {i}")
+            sec_obj = sec.get("objectives", "")
+            sec_prompt = (
+                f"You are writing chapter {i} of {len(sections)} of the {product_type} "
+                f"'{product_name}' (niche: {niche}; topic: {focus}).\n\n"
+                f"CHAPTER: {sec_title}\n"
+                f"What this chapter must cover: {sec_obj}\n\n"
+                f"{research_block}"
+                f"Already covered in earlier chapters (do NOT repeat): {', '.join(covered) or 'none yet'}.\n\n"
+                f"Write ~{target_words} words of detailed, practical, original content for THIS chapter only. "
+                f"Use Markdown: a '## {sec_title}' heading, '###' sub-headings, short paragraphs, bullet "
+                f"lists, numbered steps, and concrete real examples/tools. No JSON, no code fences around it, "
+                f"no placeholders. Do not write a conclusion unless this is the final chapter."
+            )
+            try:
+                sec_text = self._strip_code_fence(await self.ask_llm(sec_prompt, temperature=0.6, max_tokens=4096))
+            except Exception as e:
+                self.logger.warning("section_generation_failed", chapter=sec_title, error=str(e)[:120])
+                continue
+            if sec_text:
+                if not sec_text.lstrip().startswith("#"):
+                    sec_text = f"## {sec_title}\n\n{sec_text}"
+                parts.append(sec_text)
+                covered.append(sec_title)
+
+        product_body = "\n\n".join(parts)
 
         # Generate Sales landing page copy
         sales_prompt = (
@@ -163,13 +195,18 @@ class ProductCreatorAgent(AgentBase):
 
         sales_copy = await self.ask_llm(sales_prompt, temperature=0.7)
 
+        word_count = len(product_body.split())
         result = {
             "name": product_name,
             "product_type": product_type,
             "price": price,
             "body": product_body,
             "sales_page_copy": sales_copy,
+            "word_count": word_count,
+            "long_form": long_form,
+            "chapters": len(parts),
         }
+        self.logger.info("product_built", name=product_name, words=word_count, chapters=len(parts))
         self.mark_success(result)
         return result
 
@@ -220,11 +257,14 @@ class ProductCreatorAgent(AgentBase):
                 reason="Product body is not Markdown prose.",
             )
 
-        if len(body) < 1500:
+        # Long-form ebooks must actually be book-length; short products just substantial.
+        min_words = max(1, config.ebook_min_sections * config.ebook_section_words // 2) if result.get("long_form") else 250
+        words = result.get("word_count", len(body.split()))
+        if words < min_words or len(body) < 1500:
             return Verification(
                 is_complete=False,
                 should_retry=True,
-                feedback=f"Product content is too short ({len(body)} chars). Expand with more details.",
+                feedback=f"Product is too short ({words} words). A full ebook needs more chapters/depth.",
                 reason="Product body too short.",
             )
 

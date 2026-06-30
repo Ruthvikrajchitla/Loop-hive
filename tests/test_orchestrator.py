@@ -175,8 +175,8 @@ async def mock_llm_generate(messages, temperature=0.7, max_tokens=4096, json_mod
             "model": "mock-model"
         }
 
-    # 8. Product Content drafting
-    elif "finished content of this digital product" in user_prompt or "write the complete content body" in user_prompt:
+    # 8. Product chapter drafting (per-chapter generation)
+    elif "writing chapter" in user_prompt or "finished content of this digital product" in user_prompt or "write the complete content body" in user_prompt:
         # Generate a sufficiently long product content (> 1500 characters)
         long_product_body = (
             "# Ultimate Notion Productivity Planner\n\n"
@@ -268,6 +268,9 @@ async def test_full_pipeline_orchestration(mock_generate):
     # This test exercises the niche-discovery path, so disable the forced niche.
     from core.config import config
     config.forced_niche = ""
+    # Keep ebook length thresholds tiny so the mocked chapters satisfy verify.
+    config.ebook_min_sections = 1
+    config.ebook_section_words = 50
 
     # Initialize the orchestrator
     orchestrator = OrchestratorAgent()
