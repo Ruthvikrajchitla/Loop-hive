@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -31,7 +32,8 @@ class ProviderUsage:
     minute_reset_time: float = 0.0
     day_reset_time: float = 0.0
     consecutive_errors: int = 0
-    is_exhausted: bool = False
+    is_exhausted: bool = False  # True only when the daily quota (max_rpd) is spent
+    cooldown_until: float = 0.0  # Short-lived 429 backoff (per-minute), not a daily ban
 
     def reset_minute_if_needed(self):
         now = time.time()
@@ -48,10 +50,12 @@ class ProviderUsage:
             self.day_reset_time = now
 
     def can_make_request(self, provider: LLMProviderConfig) -> bool:
-        """Check if this provider can accept another request."""
+        """Check if this provider can accept another request right now."""
         self.reset_minute_if_needed()
         self.reset_day_if_needed()
 
+        if time.time() < self.cooldown_until:
+            return False
         if self.is_exhausted:
             return False
         if self.requests_this_minute >= provider.max_rpm:
@@ -63,6 +67,29 @@ class ProviderUsage:
             return False
 
         return True
+
+    def set_cooldown(self, seconds: float):
+        """Temporarily bench this provider (e.g. after a 429) without a full daily ban."""
+        self.cooldown_until = max(self.cooldown_until, time.time() + seconds)
+
+    def seconds_until_available(self, provider: LLMProviderConfig) -> float:
+        """How long until this provider could serve again. ``inf`` means not this cycle."""
+        self.reset_minute_if_needed()
+        self.reset_day_if_needed()
+        now = time.time()
+
+        # Daily quota spent or repeatedly erroring → won't recover on a short backoff.
+        if self.is_exhausted or self.requests_today >= provider.max_rpd:
+            return float("inf")
+        if self.consecutive_errors >= 5:
+            return float("inf")
+
+        waits: list[float] = []
+        if now < self.cooldown_until:
+            waits.append(self.cooldown_until - now)
+        if self.requests_this_minute >= provider.max_rpm:
+            waits.append(max(0.0, 60.0 - (now - self.minute_reset_time)))
+        return min(waits) if waits else 0.0
 
     def record_request(self, tokens_used: int = 0):
         """Record a successful request."""
@@ -120,67 +147,112 @@ class LLMRouter:
         Generate a completion using the best available provider.
 
         Returns dict with keys: content, provider, model, tokens_used
+
+        Cascades through providers by priority. A 429 only benches a provider for a
+        short cooldown (the rate-limit window, honoring ``Retry-After``) rather than
+        for the whole day. If every provider is temporarily limited, it waits with
+        exponential-ish backoff + jitter and retries the cascade before giving up.
         """
-        errors = []
+        max_attempts = 4
+        last_errors: list[str] = []
 
-        for provider in self.providers:
-            usage = self.usage[provider.name]
+        for attempt in range(1, max_attempts + 1):
+            errors: list[str] = []
 
-            if not usage.can_make_request(provider):
-                logger.debug(
-                    "provider_skipped",
-                    provider=provider.name,
-                    reason="rate_limited_or_exhausted",
-                )
-                continue
+            for provider in self.providers:
+                usage = self.usage[provider.name]
 
-            try:
-                result = await self._call_provider(
-                    provider, messages, temperature, max_tokens, json_mode
-                )
-                usage.record_request(result.get("tokens_used", 0))
-                logger.info(
-                    "llm_request_success",
-                    provider=provider.name,
-                    model=provider.model,
-                    tokens=result.get("tokens_used", 0),
-                )
-                return result
-
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code == 429:
-                    logger.warning(
-                        "provider_rate_limited",
+                if not usage.can_make_request(provider):
+                    logger.debug(
+                        "provider_skipped",
                         provider=provider.name,
-                        status=429,
+                        reason="rate_limited_or_exhausted",
                     )
-                    usage.is_exhausted = True
-                    errors.append(f"{provider.name}: rate limited (429)")
                     continue
-                else:
+
+                try:
+                    result = await self._call_provider(
+                        provider, messages, temperature, max_tokens, json_mode
+                    )
+                    usage.record_request(result.get("tokens_used", 0))
+                    logger.info(
+                        "llm_request_success",
+                        provider=provider.name,
+                        model=provider.model,
+                        tokens=result.get("tokens_used", 0),
+                    )
+                    return result
+
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code == 429:
+                        retry_after = self._parse_retry_after(e.response) or 60.0
+                        usage.set_cooldown(retry_after)
+                        logger.warning(
+                            "provider_rate_limited",
+                            provider=provider.name,
+                            status=429,
+                            cooldown_seconds=round(retry_after, 1),
+                        )
+                        errors.append(f"{provider.name}: rate limited (429)")
+                        continue
+                    else:
+                        usage.record_error()
+                        errors.append(f"{provider.name}: HTTP {e.response.status_code}")
+                        logger.error(
+                            "provider_http_error",
+                            provider=provider.name,
+                            status=e.response.status_code,
+                        )
+                        continue
+
+                except Exception as e:
                     usage.record_error()
-                    errors.append(f"{provider.name}: HTTP {e.response.status_code}")
+                    errors.append(f"{provider.name}: {str(e)[:100]}")
                     logger.error(
-                        "provider_http_error",
+                        "provider_error",
                         provider=provider.name,
-                        status=e.response.status_code,
+                        error=str(e)[:200],
                     )
                     continue
 
-            except Exception as e:
-                usage.record_error()
-                errors.append(f"{provider.name}: {str(e)[:100]}")
-                logger.error(
-                    "provider_error",
-                    provider=provider.name,
-                    error=str(e)[:200],
-                )
-                continue
+            last_errors = errors
 
-        # All providers exhausted
+            # Full pass with no success. If some provider is only *temporarily*
+            # limited (cooldown / per-minute cap), wait it out and try again.
+            recovery_wait = self._min_recovery_wait()
+            if attempt < max_attempts and recovery_wait != float("inf"):
+                sleep_for = min(recovery_wait, 30.0) + random.uniform(0.0, 1.0)
+                logger.info(
+                    "llm_router_backoff",
+                    attempt=attempt,
+                    sleep_seconds=round(sleep_for, 2),
+                )
+                await asyncio.sleep(sleep_for)
+                continue
+            break
+
         raise RuntimeError(
-            f"All LLM providers exhausted or errored. Errors: {'; '.join(errors)}"
+            f"All LLM providers exhausted or errored. Errors: {'; '.join(last_errors)}"
         )
+
+    @staticmethod
+    def _parse_retry_after(response: httpx.Response) -> float | None:
+        """Parse a Retry-After header (delta-seconds form) into seconds, if present."""
+        value = response.headers.get("retry-after")
+        if not value:
+            return None
+        try:
+            return max(0.0, float(value))
+        except (TypeError, ValueError):
+            return None
+
+    def _min_recovery_wait(self) -> float:
+        """Shortest time until any provider can serve again (``inf`` if none soon)."""
+        waits = [
+            self.usage[p.name].seconds_until_available(p)
+            for p in self.providers
+        ]
+        return min(waits) if waits else float("inf")
 
     async def _call_provider(
         self,
@@ -320,12 +392,14 @@ class LLMRouter:
             usage = self.usage[provider.name]
             usage.reset_minute_if_needed()
             usage.reset_day_if_needed()
+            cooldown_remaining = max(0.0, usage.cooldown_until - time.time())
             summary[provider.name] = {
                 "model": provider.model,
                 "requests_today": usage.requests_today,
                 "max_rpd": provider.max_rpd,
                 "remaining_today": max(0, provider.max_rpd - usage.requests_today),
                 "is_exhausted": usage.is_exhausted,
+                "cooldown_seconds": round(cooldown_remaining, 1),
                 "consecutive_errors": usage.consecutive_errors,
             }
         return summary

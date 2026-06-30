@@ -95,6 +95,7 @@ class Product(Base):
     description = Column(Text, default="")
     price = Column(Float, default=0.0)
     file_path = Column(String(500), nullable=True)
+    content = Column(Text, default="")        # Full product body (the deliverable buyers get)
     sales_page_copy = Column(Text, default="")
 
     # Distribution
@@ -188,9 +189,26 @@ async_session_factory = async_sessionmaker(async_engine, class_=AsyncSession, ex
 
 
 async def init_db():
-    """Create all tables."""
+    """Create all tables and apply lightweight column migrations."""
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Idempotent migrations for columns added after the initial release so
+        # existing SQLite databases keep working without a manual rebuild.
+        if "sqlite" in config.db_url:
+            await _ensure_column(conn, "products", "content", "TEXT")
+
+
+async def _ensure_column(conn, table: str, column: str, coltype: str) -> None:
+    """Add a column to an existing SQLite table if it isn't there yet."""
+    try:
+        res = await conn.exec_driver_sql(f"PRAGMA table_info({table})")
+        existing = [row[1] for row in res.fetchall()]
+        if column not in existing:
+            await conn.exec_driver_sql(
+                f"ALTER TABLE {table} ADD COLUMN {column} {coltype}"
+            )
+    except Exception:
+        pass
 
 
 async def get_session() -> AsyncSession:

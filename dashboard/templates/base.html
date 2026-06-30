@@ -46,7 +46,7 @@
             </nav>
             <div class="sidebar-footer">
                 <div class="status-indicator">
-                    <span class="pulse-dot green"></span> Running on Oracle Cloud
+                    <span class="pulse-dot green"></span> Autonomous swarm
                 </div>
             </div>
         </aside>
@@ -57,11 +57,15 @@
                 <div class="top-nav-left">
                     <h2>{% block page_title %}Dashboard{% endblock %}</h2>
                 </div>
-                <div class="top-nav-right">
-                    <div class="niche-badge">Niche: <strong>Notion Productivity</strong></div>
+                <div class="top-nav-right"
+                     id="topbar-live"
+                     hx-get="/fragments/topbar"
+                     hx-trigger="load, every 5s"
+                     hx-swap="innerHTML">
+                    <div class="niche-badge">Loading…</div>
                 </div>
             </header>
-            
+
             <main class="content-body">
                 {% block content %}{% endblock %}
             </main>

@@ -1,7 +1,12 @@
 """
 LoopHive — Main Runner
 
-Provides CLI commands to run the mission control dashboard or trigger the agent swarm loop.
+Provides CLI commands to run the mission control dashboard or the autonomous
+agent swarm. The swarm runs the three-tier loop engine continuously:
+
+  - MicroLoop : every cycle  — full content→product→marketing pipeline
+  - MesoLoop  : weekly       — strategy review over published content
+  - MacroLoop : monthly      — niche evaluation (continue / pivot / kill)
 """
 
 from __future__ import annotations
@@ -10,6 +15,9 @@ import argparse
 import asyncio
 import os
 import sys
+import time
+
+import structlog
 import uvicorn
 from dotenv import load_dotenv
 
@@ -17,27 +25,182 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 from core.config import config
+from core.loop_engine import MicroLoop, MesoLoop, MacroLoop, MacroDecision
 from agents.orchestrator import OrchestratorAgent
 from storage.database import init_db
 
+logger = structlog.get_logger(__name__)
 
-async def run_swarm():
-    """Run a single iteration of the autonomous agent swarm pipeline."""
+
+# ---------------------------------------------------------------------------
+# Data helpers — read the DB so Meso/Macro operate on real state
+# ---------------------------------------------------------------------------
+
+async def _active_niche_name(default: str = "Notion Productivity") -> str:
+    try:
+        from storage.database import async_session_factory, Niche
+        from sqlalchemy import select
+        async with async_session_factory() as session:
+            stmt = (
+                select(Niche)
+                .where(Niche.status == "active")
+                .order_by(Niche.created_at.desc())
+                .limit(1)
+            )
+            niche = (await session.execute(stmt)).scalar_one_or_none()
+            if niche:
+                return niche.name
+    except Exception as e:
+        logger.debug("active_niche_lookup_failed", error=str(e))
+    return default
+
+
+async def _published_content() -> list[dict]:
+    """Published articles shaped for the MesoLoop's performance review."""
+    try:
+        from storage.database import async_session_factory, Content
+        from sqlalchemy import select
+        async with async_session_factory() as session:
+            stmt = select(Content).where(Content.status == "published")
+            rows = (await session.execute(stmt)).scalars().all()
+            return [
+                {
+                    "topic": c.title,
+                    "engagement_score": c.engagement_seconds or c.views or 0,
+                    "days_since_publish": 0,
+                    "quality_score": c.quality_score,
+                }
+                for c in rows
+            ]
+    except Exception as e:
+        logger.debug("published_content_lookup_failed", error=str(e))
+        return []
+
+
+async def _aggregate_kpis() -> dict:
+    """Roll up the KPIs the MacroLoop needs from persisted state."""
+    kpis: dict = {
+        "traffic_trend_wow": 0.0,
+        "avg_engagement_seconds": 0.0,
+        "subscriber_growth_weekly": 0,
+        "total_revenue": 0.0,
+        "content_quality_avg": 0.0,
+        "affiliate_clicks": 0,
+        "articles_published": 0,
+        "legal_issues": [],
+    }
+    try:
+        from storage.database import async_session_factory, Content, Revenue
+        from sqlalchemy import select, func
+        async with async_session_factory() as session:
+            published = select(Content).where(Content.status == "published")
+            rows = (await session.execute(published)).scalars().all()
+            kpis["articles_published"] = len(rows)
+            if rows:
+                kpis["content_quality_avg"] = sum(c.quality_score for c in rows) / len(rows)
+                kpis["avg_engagement_seconds"] = sum(c.engagement_seconds for c in rows) / len(rows)
+                kpis["affiliate_clicks"] = sum(c.affiliate_clicks for c in rows)
+            total_rev = (await session.execute(select(func.sum(Revenue.amount)))).scalar()
+            kpis["total_revenue"] = float(total_rev or 0.0)
+    except Exception as e:
+        logger.debug("kpi_aggregation_failed", error=str(e))
+    return kpis
+
+
+async def _apply_macro_decision(niche_name: str, decision: MacroDecision) -> None:
+    """Persist the monthly verdict (pivot/kill flips the niche status)."""
+    if decision == MacroDecision.CONTINUE:
+        return
+    new_status = "pivoted" if decision == MacroDecision.PIVOT else "killed"
+    try:
+        import datetime
+        from storage.database import async_session_factory, Niche
+        from sqlalchemy import select
+        async with async_session_factory() as session:
+            async with session.begin():
+                stmt = select(Niche).where(Niche.name == niche_name)
+                niche = (await session.execute(stmt)).scalar_one_or_none()
+                if niche:
+                    niche.status = new_status
+                    niche.evaluated_at = datetime.datetime.utcnow()
+                    niche.evaluation_decision = decision.value
+        logger.info("macro_decision_applied", niche=niche_name, status=new_status)
+    except Exception as e:
+        logger.error("macro_decision_apply_failed", error=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Swarm runner — the three-tier autonomous loop
+# ---------------------------------------------------------------------------
+
+async def run_swarm(continuous: bool = True, interval: float | None = None) -> None:
+    """Run the autonomous agent swarm.
+
+    With ``continuous=True`` it loops forever, sleeping ``interval`` seconds
+    between micro cycles, and fires the weekly/monthly tiers on their schedules.
+    With ``continuous=False`` it runs exactly one micro cycle (handy for CI/cron).
+    """
     print("\n[LoopHive] Initializing Swarm Orchestrator...")
     await init_db()
-    
+
     orchestrator = OrchestratorAgent()
-    print("[LoopHive] Swarm initialized. Running end-to-end loop...")
-    
-    # Run the orchestrator E2E
-    result = await orchestrator.act({"goal": "Run E2E pipeline for autonomous monetization"})
-    
-    print("\n[LoopHive] Swarm cycle completed!")
-    print(f"Niche Target: {result.get('niche', {}).get('name', 'Unknown')}")
-    print(f"Article Written: {result.get('article_written', False)}")
-    print(f"Product Created: {result.get('product_created', False)}")
-    print(f"Marketing Channels: {result.get('marketing_channels', 0)}")
-    print(f"Decision: {result.get('eval_decision', 'continue')}")
+    micro = MicroLoop(max_iterations=2, timeout_seconds=1800.0)
+    meso = MesoLoop()
+    macro = MacroLoop()
+
+    if interval is None:
+        interval = float(os.getenv("SWARM_INTERVAL_SECONDS", "3600"))
+    meso_every = float(os.getenv("MESO_INTERVAL_SECONDS", str(7 * 86400)))
+    macro_every = float(os.getenv("MACRO_INTERVAL_SECONDS", str(30 * 86400)))
+
+    now = time.time()
+    last_meso = now
+    last_macro = now
+    cycle = 0
+
+    print("[LoopHive] Swarm initialized. Entering autonomous loop"
+          + (" (single cycle)." if not continuous else f" (every {interval:.0f}s).") )
+
+    while True:
+        cycle += 1
+        logger.info("swarm_cycle_start", cycle=cycle)
+
+        # --- Tier 1: MicroLoop — run the full pipeline through perceive→verify ---
+        res = await micro.run(
+            orchestrator, "Run E2E pipeline for autonomous monetization"
+        )
+        report = res.output if isinstance(res.output, dict) else {}
+        print(f"\n[LoopHive] Cycle {cycle} — status={res.status.value}")
+        print(f"  Niche:    {report.get('niche', {}).get('name', 'Unknown')}")
+        print(f"  Article:  {report.get('article_written', False)} "
+              f"(quality {report.get('critic_score', 0)}, originality {report.get('originality_score', 0)})")
+        print(f"  Product:  {report.get('product_created', False)}")
+        print(f"  Channels: {report.get('marketing_channels', 0)}")
+
+        niche_name = await _active_niche_name()
+        now = time.time()
+
+        # --- Tier 2: MesoLoop — weekly strategy review ---
+        if now - last_meso >= meso_every:
+            logger.info("swarm_meso_trigger", cycle=cycle)
+            plan = await meso.run(niche_name, await _published_content())
+            print(f"  [Meso] Weekly review: {len(plan.adjustments)} adjustment(s), "
+                  f"{len(plan.content_briefs)} brief(s).")
+            last_meso = now
+
+        # --- Tier 3: MacroLoop — monthly niche evaluation ---
+        if now - last_macro >= macro_every:
+            logger.info("swarm_macro_trigger", cycle=cycle)
+            evaluation = await macro.run(niche_name, await _aggregate_kpis())
+            print(f"  [Macro] 30-day verdict for '{niche_name}': {evaluation.decision.value.upper()}")
+            await _apply_macro_decision(niche_name, evaluation.decision)
+            last_macro = now
+
+        if not continuous:
+            break
+        await asyncio.sleep(interval)
+
+    print("\n[LoopHive] Swarm run complete.")
 
 
 def run_dashboard():
@@ -53,24 +216,34 @@ def run_dashboard():
 
 if __name__ == "__main__":
     load_dotenv()
-    
+
     parser = argparse.ArgumentParser(description="LoopHive Command Line Interface")
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
         "--swarm",
         action="store_true",
-        help="Run a single cycle of the autonomous agent swarm pipeline",
+        help="Run the autonomous agent swarm continuously (MicroLoop + weekly/monthly tiers)",
     )
     group.add_argument(
         "--dashboard",
         action="store_true",
         help="Start the mission control dashboard (default)",
     )
-    
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="With --swarm, run a single cycle and exit instead of looping",
+    )
+    parser.add_argument(
+        "--interval",
+        type=float,
+        default=None,
+        help="Seconds between micro cycles in continuous mode (default: SWARM_INTERVAL_SECONDS or 3600)",
+    )
+
     args = parser.parse_args()
-    
+
     if args.swarm:
-        asyncio.run(run_swarm())
+        asyncio.run(run_swarm(continuous=not args.once, interval=args.interval))
     else:
-        # Default behavior: run dashboard
         run_dashboard()

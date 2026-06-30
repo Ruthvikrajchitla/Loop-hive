@@ -2,92 +2,13 @@
 
 {% block title %}Dashboard Overview | LoopHive{% endblock %}
 
-{% block page_title %}Mission Control Overview{% endblock %}
+{% block page_title %}Mission Control{% endblock %}
 
 {% block content %}
-<div class="stats-row">
-    <!-- Stat card 1 -->
-    <div class="stat-card">
-        <div class="stat-header">
-            <span class="stat-title">Total Swarm Revenue</span>
-            <span class="stat-emoji">💰</span>
-        </div>
-        <div class="stat-value" id="total-revenue">${{ summary.total_revenue }}0</div>
-        <div class="stat-footer text-green">Bootstrap Progress: Active</div>
-    </div>
-    
-    <!-- Stat card 2 -->
-    <div class="stat-card">
-        <div class="stat-header">
-            <span class="stat-title">Active Niche</span>
-            <span class="stat-emoji">🔍</span>
-        </div>
-        <div class="stat-value">{{ active_niche }}</div>
-        <div class="stat-footer">Monthly Evaluator: {{ next_eval_date }}</div>
-    </div>
-
-    <!-- Stat card 3 -->
-    <div class="stat-card">
-        <div class="stat-header">
-            <span class="stat-title">API Server Cost</span>
-            <span class="stat-emoji">☁️</span>
-        </div>
-        <div class="stat-value">${{ summary.total_cost }}0</div>
-        <div class="stat-footer text-green">100% Free Tiers</div>
-    </div>
-
-    <!-- Stat card 4 -->
-    <div class="stat-card">
-        <div class="stat-header">
-            <span class="stat-title">Swarm Net Profit</span>
-            <span class="stat-emoji">📈</span>
-        </div>
-        <div class="stat-value text-green">${{ summary.net_profit }}0</div>
-        <div class="stat-footer">Reinvest Ratio: 100%</div>
-    </div>
-</div>
-
-<div class="dashboard-grid">
-    <!-- Left Column: Content Pipeline -->
-    <div class="card grid-main">
-        <div class="card-header">
-            <h3>Recent Swarm Activities</h3>
-            <a href="/content" class="btn-link">View Pipeline →</a>
-        </div>
-        <div class="activity-list">
-            {% for item in recent_content %}
-            <div class="activity-item">
-                <div class="activity-meta">
-                    <span class="badge {% if item.type == 'Article' %}blue{% else %}purple{% endif %}">{{ item.type }}</span>
-                    <h4>{{ item.title }}</h4>
-                </div>
-                <div class="activity-scores">
-                    <span class="score-badge green">Quality: {{ item.quality_score }}%</span>
-                    <span class="score-badge purple">Originality: {{ item.originality_score }}%</span>
-                    <span class="time-meta">{{ item.date }}</span>
-                </div>
-            </div>
-            {% endfor %}
-        </div>
-    </div>
-
-    <!-- Right Column: Agent statuses -->
-    <div class="card grid-side">
-        <div class="card-header">
-            <h3>Agent Status Swarm</h3>
-            <a href="/agents" class="btn-link">Manage →</a>
-        </div>
-        <div class="agent-status-list">
-            {% for agent in agents %}
-            <div class="agent-status-item">
-                <div class="agent-name">
-                    <span class="status-indicator {% if agent.status == 'idle' %}green{% else %}blue{% endif %}"></span>
-                    <strong>{{ agent.name }}</strong>
-                </div>
-                <span class="badge gray">{{ agent.status }}</span>
-            </div>
-            {% endfor %}
-        </div>
-    </div>
+<div id="overview-live"
+     hx-get="/dashboard/live"
+     hx-trigger="load, every 4s"
+     hx-swap="innerHTML">
+    {% include "_overview_live.html" %}
 </div>
 {% endblock %}

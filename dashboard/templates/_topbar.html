@@ -1,0 +1,12 @@
+{% if live.swarm_status == 'running' %}
+<div class="swarm-pill running">
+    <span class="pulse-dot blue"></span>
+    <span class="swarm-pill-label">{{ live.project_stage }}</span>
+</div>
+{% else %}
+<div class="swarm-pill idle">
+    <span class="pulse-dot green"></span>
+    <span class="swarm-pill-label">Idle</span>
+</div>
+{% endif %}
+<div class="niche-badge">Niche: <strong>{{ live.active_niche }}</strong></div>

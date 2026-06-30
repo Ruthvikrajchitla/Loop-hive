@@ -125,6 +125,34 @@ class ContentWriterAgent(AgentBase):
         self.mark_success(result)
         return result
 
+    async def revise(self, draft: dict, feedback: str) -> dict:
+        """Rewrite an existing draft to address critic / plagiarism feedback.
+
+        Returns the same shape as ``act()`` so it can flow straight back into the
+        critic → plagiarism gate for re-checking.
+        """
+        title = draft.get("title", "Untitled")
+        body = draft.get("body", "")
+
+        revise_prompt = (
+            f"You are revising the article titled '{title}' based on reviewer feedback.\n\n"
+            f"REVIEWER FEEDBACK (address every point):\n{feedback}\n\n"
+            f"CURRENT DRAFT:\n{body[:8000]}\n\n"
+            f"Rewrite the article to fully resolve the feedback — improve depth, originality, "
+            f"readability, structure, and natural keyword usage. Rephrase any flagged or generic "
+            f"boilerplate passages in an original voice. Keep it 2000+ words in clean Markdown.\n\n"
+            f"Output a JSON object with keys: 'meta_description', 'word_count', 'polished_body'."
+        )
+
+        revised = await self.ask_llm_json(revise_prompt, temperature=0.5)
+        polished_body = revised.get("polished_body") or body
+        return {
+            "title": title,
+            "meta_description": revised.get("meta_description", draft.get("meta_description", "")),
+            "word_count": revised.get("word_count", len(polished_body.split())),
+            "body": polished_body,
+        }
+
     async def verify(self, result: Any, goal: str) -> Verification:
         """Verify the written content meets basic quality parameters."""
         if not isinstance(result, dict) or "body" not in result:

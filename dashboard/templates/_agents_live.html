@@ -1,0 +1,90 @@
+<!-- Coordinator card -->
+{% for a in live.agents %}
+{% if a.name == 'orchestrator' %}
+<div class="card coordinator-card {{ a.status }}">
+    <div class="coord-left">
+        <span class="la-icon big">{{ a.icon }}</span>
+        <div>
+            <h3>Orchestrator <span class="status-chip {{ a.status }}">
+                {% if a.status == 'running' %}<span class="pulse-dot blue"></span>{% endif %}{{ a.status }}</span></h3>
+            <p class="description">{{ a.description }}</p>
+        </div>
+    </div>
+    <div class="coord-right">
+        <div><strong>{{ a.runs_today }}</strong><span>cycles today</span></div>
+        <div><strong>{{ a.success_rate }}</strong><span>success</span></div>
+        <div><strong>{{ a.last_run_ago }}</strong><span>last cycle</span></div>
+    </div>
+</div>
+{% endif %}
+{% endfor %}
+
+<!-- Specialist agent cards -->
+<div class="card margin-top">
+    <div class="card-header"><h3>Specialist Agents — what each is doing</h3></div>
+    <div class="agents-grid">
+        {% for a in live.agents %}
+        {% if a.name != 'orchestrator' %}
+        <div class="agent-card {{ a.status }}">
+            <div class="agent-header">
+                <h4>{{ a.icon }} {{ a.name }}</h4>
+                <span class="status-chip {{ a.status }}">
+                    {% if a.status == 'running' %}<span class="pulse-dot blue"></span>{% endif %}{{ a.status }}
+                </span>
+            </div>
+            <p class="description">{{ a.description }}</p>
+            <div class="agent-current">
+                {% if a.status == 'running' and a.current_task %}
+                <span class="ac-label text-blue">▶ Now</span> {{ a.current_task }}
+                {% elif a.last_task %}
+                <span class="ac-label">Last task</span> {{ a.last_task }}
+                {% else %}
+                <span class="ac-label">Idle</span> Not run yet today
+                {% endif %}
+            </div>
+            <div class="agent-stats">
+                <div>Runs today: <strong>{{ a.runs_today }}</strong></div>
+                <div>Success: <strong>{{ a.success_rate }}</strong></div>
+                <div>Tokens: <strong>{{ "{:,}".format(a.tokens_today) }}</strong></div>
+                <div>Last: <strong>{{ a.last_run_ago }}</strong></div>
+            </div>
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+</div>
+
+<!-- LLM provider quotas -->
+<div class="card margin-top">
+    <div class="card-header"><h3>LLM Free-Tier Providers</h3></div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Provider</th><th>Model</th><th>Requests Today</th>
+                <th>Daily Limit</th><th>Remaining</th><th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for name, usage in llm_usage.items() %}
+            <tr>
+                <td><strong>{{ name|capitalize }}</strong></td>
+                <td><code>{{ usage.model }}</code></td>
+                <td>{{ usage.requests_today }}</td>
+                <td>{{ usage.max_rpd }}</td>
+                <td>{{ usage.remaining_today }}</td>
+                <td>
+                    {% if usage.is_exhausted %}
+                    <span class="badge red">Daily limit hit</span>
+                    {% elif usage.cooldown_seconds and usage.cooldown_seconds > 0 %}
+                    <span class="badge yellow">Cooling {{ usage.cooldown_seconds }}s</span>
+                    {% else %}
+                    <span class="badge green">Healthy</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="empty-state">No LLM providers configured. Add API keys to your .env.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>

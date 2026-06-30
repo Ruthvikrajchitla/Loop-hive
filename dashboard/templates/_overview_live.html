@@ -1,0 +1,111 @@
+<!-- LIVE NOW: current activity hero -->
+<div class="hero-card {% if live.swarm_status == 'running' %}is-live{% endif %}">
+    <div class="hero-left">
+        <div class="hero-status">
+            {% if live.swarm_status == 'running' %}
+            <span class="pulse-dot blue"></span> <span class="text-blue">LIVE — swarm is working</span>
+            {% else %}
+            <span class="pulse-dot green"></span> <span class="text-green">Idle — awaiting next cycle</span>
+            {% endif %}
+        </div>
+        <h1 class="hero-stage">{{ live.project_stage }}</h1>
+        {% if live.current_topic %}
+        <p class="hero-topic">Working on: <strong>{{ live.current_topic }}</strong></p>
+        <p class="hero-sub">Active agent: <strong>{{ live.active_agent }}</strong> · started {{ live.current_task_started }}</p>
+        {% else %}
+        <p class="hero-topic">No agent is currently running. The next cycle will pick up automatically.</p>
+        {% endif %}
+    </div>
+    <div class="hero-right">
+        <div class="hero-niche-label">Active niche</div>
+        <div class="hero-niche">{{ live.active_niche }}</div>
+    </div>
+</div>
+
+<!-- TODAY'S PROGRESS -->
+<div class="progress-strip">
+    <div class="progress-item"><span class="p-value">{{ live.today.runs }}</span><span class="p-label">Agent runs today</span></div>
+    <div class="progress-item"><span class="p-value">{{ live.today.successes }}</span><span class="p-label">Successful</span></div>
+    <div class="progress-item"><span class="p-value text-blue">{{ live.today.articles }}</span><span class="p-label">Articles</span></div>
+    <div class="progress-item"><span class="p-value text-purple">{{ live.today.products }}</span><span class="p-label">Products</span></div>
+    <div class="progress-item"><span class="p-value text-yellow">{{ live.today.campaigns }}</span><span class="p-label">Campaigns</span></div>
+    <div class="progress-item"><span class="p-value">{{ "{:,}".format(live.today.tokens) }}</span><span class="p-label">Tokens (free)</span></div>
+</div>
+
+<!-- PIPELINE STAGE TRACKER -->
+<div class="card">
+    <div class="card-header"><h3>Project Pipeline — today</h3></div>
+    <div class="stage-track">
+        {% for s in live.stages %}
+        <div class="stage-node {{ s.state }}">
+            <div class="stage-icon">{{ s.icon }}</div>
+            <div class="stage-name">{{ s.stage }}</div>
+            <div class="stage-state">
+                {% if s.state == 'active' %}● running
+                {% elif s.state == 'done' %}✓ done
+                {% elif s.state == 'attempted' %}… attempted
+                {% else %}pending{% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="dashboard-grid margin-top">
+    <!-- LIVE AGENT GRID -->
+    <div class="card grid-main">
+        <div class="card-header">
+            <h3>Agents — live status</h3>
+            <a href="/agents" class="btn-link">Details →</a>
+        </div>
+        <div class="live-agent-grid">
+            {% for a in live.agents %}
+            {% if a.name != 'orchestrator' %}
+            <div class="live-agent {{ a.status }}">
+                <div class="la-top">
+                    <span class="la-icon">{{ a.icon }}</span>
+                    <span class="la-name">{{ a.name }}</span>
+                    <span class="status-chip {{ a.status }}">
+                        {% if a.status == 'running' %}<span class="pulse-dot blue"></span>{% endif %}
+                        {{ a.status }}
+                    </span>
+                </div>
+                <div class="la-task">
+                    {% if a.status == 'running' and a.current_task %}{{ a.current_task }}
+                    {% elif a.last_task %}Last: {{ a.last_task }}
+                    {% else %}Not run yet{% endif %}
+                </div>
+                <div class="la-meta">
+                    <span>{{ a.runs_today }} runs</span>
+                    <span>{{ a.success_rate }} ok</span>
+                    <span>{{ "{:,}".format(a.tokens_today) }} tok</span>
+                    <span>{{ a.last_run_ago }}</span>
+                </div>
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- ACTIVITY TIMELINE -->
+    <div class="card grid-side">
+        <div class="card-header"><h3>Recent activity</h3></div>
+        <div class="timeline">
+            {% for t in live.timeline %}
+            <div class="tl-item">
+                <span class="tl-icon">{{ t.icon }}</span>
+                <div class="tl-body">
+                    <div class="tl-line">
+                        <strong>{{ t.agent }}</strong>
+                        <span class="status-chip sm {{ t.status }}">{{ t.status }}</span>
+                    </div>
+                    <div class="tl-task">{{ t.task }}</div>
+                    <div class="tl-meta">{{ t.ago }} · {{ t.duration }}s · {{ "{:,}".format(t.tokens) }} tok</div>
+                </div>
+            </div>
+            {% else %}
+            <p class="empty-state">No agent activity yet. Start the swarm to see live runs here.</p>
+            {% endfor %}
+        </div>
+    </div>
+</div>

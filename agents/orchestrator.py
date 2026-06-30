@@ -14,6 +14,7 @@ from typing import Any
 import structlog
 
 from core.agent_base import AgentBase
+from core.config import config
 from core.loop_engine import ContextWindow, Verification, MicroLoop
 from agents.niche_scout import NicheScoutAgent
 from agents.legal_researcher import LegalResearchAgent
@@ -55,6 +56,8 @@ class OrchestratorAgent(AgentBase):
         self.marketing = MarketingAgent(router=self.router)
         self.evaluator = MonthlyEvaluatorAgent(router=self.router)
         self.micro_loop = MicroLoop(max_iterations=5)
+        # Max critic/plagiarism → writer revise-and-recheck rounds before publishing as-is.
+        self.max_quality_rounds = 3
 
     async def perceive(self, context: ContextWindow) -> dict:
         """Inspect current workspace progress and active tasks."""
@@ -106,34 +109,98 @@ class OrchestratorAgent(AgentBase):
         writer_res = await self.micro_loop.run(self.writer, f"Write a long-form article for {niche_name}.")
         report["article_written"] = writer_res.output is not None
 
-        # 4. Critique content
+        # 4-6. Quality gate: critic + plagiarism, with revise-and-recheck.
         if writer_res.output:
-            logger.info("orchestrator_stage", stage="content_critic")
-            # Create a context and append the content output to evaluate
-            critic_ctx = ContextWindow()
-            critic_ctx.add("assistant", str(writer_res.output))
-            critic_res = await self.micro_loop.run(self.critic, "Score and review this article draft.")
-            report["critic_score"] = critic_res.output.get("score", 0.0) if critic_res.output else 0.0
+            import json
 
-            # 5. Plagiarism Check
-            logger.info("orchestrator_stage", stage="plagiarism_check")
-            plag_ctx = ContextWindow()
-            plag_ctx.add("assistant", str(writer_res.output))
-            plag_res = await self.micro_loop.run(self.plagiarism, "Verify originality of the article.")
-            report["originality_score"] = plag_res.output.score if plag_res.output else 0.0
+            draft = writer_res.output  # dict: {title, body, meta_description, word_count}
+            critic_score = 0.0
+            originality_score = 0.0
 
-            # 6. Compliance Wrapping
+            for round_num in range(1, self.max_quality_rounds + 1):
+                # The writer's output is a JSON-serializable dict; json.dumps lets the
+                # downstream agents' json.loads path recover the structured draft
+                # (str(dict) would yield invalid JSON).
+                draft_json = json.dumps(draft)
+
+                logger.info("orchestrator_stage", stage="content_critic", round=round_num)
+                critic_ctx = ContextWindow()
+                critic_ctx.add("assistant", draft_json)
+                critic_res = await self.micro_loop.run(
+                    self.critic, "Score and review this article draft.", context=critic_ctx
+                )
+                critic_out = critic_res.output or {}
+                critic_score = float(critic_out.get("score", 0.0))
+
+                logger.info("orchestrator_stage", stage="plagiarism_check", round=round_num)
+                plag_ctx = ContextWindow()
+                plag_ctx.add("assistant", draft_json)
+                plag_res = await self.micro_loop.run(
+                    self.plagiarism, "Verify originality of the article.", context=plag_ctx
+                )
+                originality_score = plag_res.output.score if plag_res.output else 0.0
+
+                quality_ok = critic_score >= config.quality_threshold
+                originality_ok = originality_score >= config.plagiarism_threshold
+                if quality_ok and originality_ok:
+                    logger.info(
+                        "content_quality_gate_passed",
+                        round=round_num,
+                        critic_score=critic_score,
+                        originality_score=originality_score,
+                    )
+                    break
+
+                if round_num >= self.max_quality_rounds:
+                    logger.warning(
+                        "content_quality_gate_failed",
+                        rounds=round_num,
+                        critic_score=critic_score,
+                        originality_score=originality_score,
+                    )
+                    break
+
+                # Build actionable feedback and send the draft back to the writer.
+                feedback_parts = []
+                if not quality_ok:
+                    improvements = critic_out.get("improvements", [])
+                    feedback_parts.append(
+                        f"QUALITY {critic_score}/100 (need {config.quality_threshold}). "
+                        f"{critic_out.get('critique', '')} "
+                        f"Improvements: {'; '.join(str(i) for i in improvements)}"
+                    )
+                if not originality_ok:
+                    flagged = plag_res.output.flagged_sections if plag_res.output else []
+                    feedback_parts.append(
+                        f"ORIGINALITY {originality_score:.1f}/100 (need {config.plagiarism_threshold}). "
+                        f"Rewrite flagged/boilerplate passages: {'; '.join(str(f) for f in flagged)}"
+                    )
+                feedback = "\n".join(feedback_parts)
+                logger.info("content_revision_requested", round=round_num, feedback=feedback[:200])
+                draft = await self.writer.revise(draft, feedback)
+
+            # The (possibly revised) draft is the canonical article from here on.
+            writer_res.output = draft
+            report["critic_score"] = critic_score
+            report["originality_score"] = originality_score
+
+            # 6. Compliance Wrapping (on the final, approved draft)
             logger.info("orchestrator_stage", stage="compliance_wrapping")
             comply_ctx = ContextWindow()
-            comply_ctx.add("assistant", str(writer_res.output))
+            comply_ctx.add("assistant", json.dumps(draft))
             if rulebook:
                 comply_ctx.add("system", rulebook.to_json())
-            comply_res = await self.micro_loop.run(self.compliance, "Inject required disclosures.")
+            comply_res = await self.micro_loop.run(
+                self.compliance, "Inject required disclosures.", context=comply_ctx
+            )
             report["compliance_passed"] = comply_res.output is not None
             if comply_res.output:
                 report["compliant_article_size"] = len(comply_res.output.get("body", ""))
+                # Persist the compliance-wrapped body so the saved article is publish-ready.
+                writer_res.output = comply_res.output
 
         # 7. Build digital product
+        mkt_res = None
         logger.info("orchestrator_stage", stage="product_creation")
         prod_res = await self.micro_loop.run(self.creator, f"Build a cheat sheet product for {niche_name}.")
         report["product_created"] = prod_res.output is not None
@@ -146,7 +213,9 @@ class OrchestratorAgent(AgentBase):
             mkt_ctx = ContextWindow()
             import json
             mkt_ctx.add("assistant", json.dumps(prod_res.output))
-            mkt_res = await self.micro_loop.run(self.marketing, "Generate a marketing plan for the product.")
+            mkt_res = await self.micro_loop.run(
+                self.marketing, "Generate a marketing plan for the product.", context=mkt_ctx
+            )
             report["marketing_channels"] = len(mkt_res.output.get("channels", [])) if mkt_res.output else 0
 
         # 9. Monthly evaluation
@@ -158,7 +227,10 @@ class OrchestratorAgent(AgentBase):
         # Database persistence
         try:
             import datetime
-            from storage.database import async_session_factory, Niche, Content, Product, ComplianceRule
+            from storage.database import (
+                async_session_factory, Niche, Content, Product, ComplianceRule,
+                MarketingCampaign,
+            )
             from sqlalchemy.future import select
 
             async with async_session_factory() as session:
@@ -193,11 +265,15 @@ class OrchestratorAgent(AgentBase):
                                 session.add(db_rule)
 
                     # 3. Save Content
+                    db_content = None
                     if writer_res.output:
                         out = writer_res.output
+                        # The final draft (after revise + compliance) uses the "body" key.
                         title = out.get("title", f"10 Hacks for {niche_name}") if isinstance(out, dict) else f"10 Hacks for {niche_name}"
-                        body = out.get("polished_body", "") if isinstance(out, dict) else str(out)
-                        
+                        body = out.get("body", "") if isinstance(out, dict) else str(out)
+                        meta = out.get("meta_description", "") if isinstance(out, dict) else ""
+                        words = int(out.get("word_count", len(body.split()))) if isinstance(out, dict) else len(body.split())
+
                         stmt = select(Content).where(Content.title == title)
                         db_content = (await session.execute(stmt)).scalar_one_or_none()
                         if not db_content:
@@ -205,6 +281,8 @@ class OrchestratorAgent(AgentBase):
                                 niche_id=db_niche.id,
                                 title=title,
                                 body=body,
+                                meta_description=meta,
+                                word_count=words,
                                 content_type="article",
                                 quality_score=float(report.get("critic_score", 85.0)),
                                 originality_score=float(report.get("originality_score", 90.0)),
@@ -212,29 +290,57 @@ class OrchestratorAgent(AgentBase):
                                 published_platform="substack",
                                 published_url="https://substack.com",
                                 published_at=datetime.datetime.utcnow(),
+                                has_ai_disclosure=bool(out.get("has_ai_disclosure")) if isinstance(out, dict) else False,
+                                has_affiliate_disclosure=bool(out.get("has_affiliate_disclosure")) if isinstance(out, dict) else False,
+                                compliance_checked=bool(out.get("compliance_checked")) if isinstance(out, dict) else False,
                             )
                             session.add(db_content)
+                            await session.flush()  # Populate db_content.id for the campaign FK
 
                     # 4. Save Product
+                    db_product = None
                     if prod_res.output:
                         out = prod_res.output
-                        prod_name = out.get("name", f"Ultimate {niche_name} Template") if isinstance(out, dict) else f"Ultimate {niche_name} Template"
-                        prod_price = float(out.get("price", 9.0)) if isinstance(out, dict) else 9.0
-                        prod_desc = out.get("sales_page_copy", "") if isinstance(out, dict) else str(out)
-                        
+                        is_dict = isinstance(out, dict)
+                        prod_name = out.get("name", f"Ultimate {niche_name} Template") if is_dict else f"Ultimate {niche_name} Template"
+                        prod_price = float(out.get("price", 9.0)) if is_dict else 9.0
+                        prod_body = out.get("body", "") if is_dict else str(out)
+                        prod_sales = out.get("sales_page_copy", "") if is_dict else ""
+                        prod_type = out.get("product_type", "guide") if is_dict else "guide"
+
+                        # No real storefront token wired → the product is generated and
+                        # stored for manual upload, not actually published/sold.
                         stmt = select(Product).where(Product.name == prod_name)
                         db_product = (await session.execute(stmt)).scalar_one_or_none()
                         if not db_product:
                             db_product = Product(
                                 niche_id=db_niche.id,
                                 name=prod_name,
+                                product_type=prod_type,
                                 price=prod_price,
-                                description=prod_desc,
-                                status="published",
-                                platform="gumroad",
-                                platform_url="https://gumroad.com",
+                                content=prod_body,
+                                sales_page_copy=prod_sales,
+                                description=(prod_body[:300] if prod_body else ""),
+                                status="ready_local",
+                                platform=None,
+                                platform_url=None,
                             )
                             session.add(db_product)
+                            await session.flush()  # Populate db_product.id for the campaign FK
+
+                    # 5. Save Marketing Campaign
+                    mkt_out = mkt_res.output if mkt_res else None
+                    if mkt_out and isinstance(mkt_out, dict) and mkt_out.get("channels"):
+                        channels = [c.get("name", "") for c in mkt_out.get("channels", [])]
+                        session.add(MarketingCampaign(
+                            name=mkt_out.get("campaign_name", f"{niche_name} Launch"),
+                            product_id=db_product.id if db_product else None,
+                            content_id=db_content.id if db_content else None,
+                            channels=channels,
+                            status="planned",
+                            posts_created=len(channels),
+                            started_at=datetime.datetime.utcnow(),
+                        ))
 
             logger.info("database_persistence_success", niche=niche_name)
         except Exception as e:

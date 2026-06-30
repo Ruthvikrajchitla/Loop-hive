@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}{{ product.name }} | LoopHive{% endblock %}
+
+{% block page_title %}Product Preview{% endblock %}
+
+{% block content %}
+<div class="detail-toolbar">
+    <a href="/products" class="btn-link">← Back to products</a>
+    <div class="detail-actions">
+        <span class="badge gray">{{ product.type }}</span>
+        <span class="badge purple">${{ "%.2f"|format(product.price) }}</span>
+        <a href="/products/{{ product.id }}/download" class="btn-primary">⬇ Download .md</a>
+    </div>
+</div>
+
+<h1 class="detail-title">{{ product.name }}</h1>
+<p class="detail-hint">This product was generated and saved locally. Copy the content below or download
+the <code>.md</code> file, then upload it to Gumroad / Payhip yourself.</p>
+
+<div class="detail-grid">
+    <div class="card">
+        <div class="card-header">
+            <h3>📦 Product Content</h3>
+            <button class="btn-secondary" onclick="copyText('product-md')">Copy Markdown</button>
+        </div>
+        <textarea id="product-md" class="hidden-source">{{ product.content_md }}</textarea>
+        <div class="md-render">{{ product.content_html|safe }}</div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h3>🛒 Sales Page Copy</h3>
+            <button class="btn-secondary" onclick="copyText('sales-md')">Copy Markdown</button>
+        </div>
+        <textarea id="sales-md" class="hidden-source">{{ product.sales_md }}</textarea>
+        <div class="md-render">{{ product.sales_html|safe }}</div>
+    </div>
+</div>
+
+<script>
+function copyText(id) {
+    const el = document.getElementById(id);
+    navigator.clipboard.writeText(el.value).then(() => {
+        const btn = event.target;
+        const old = btn.textContent;
+        btn.textContent = "✓ Copied";
+        setTimeout(() => { btn.textContent = old; }, 1500);
+    });
+}
+</script>
+{% endblock %}

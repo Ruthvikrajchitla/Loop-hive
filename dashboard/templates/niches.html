@@ -5,42 +5,34 @@
 {% block page_title %}Niche Discovery & Evaluations{% endblock %}
 
 {% block content %}
+{% if current_niche %}
 <div class="card">
     <div class="card-header">
         <h3>Current Active Niche</h3>
         <span class="badge green">Active</span>
     </div>
     <div class="niche-detail-body">
-        <h2>{{ current_niche.name }} (Score: {{ current_niche.score }})</h2>
+        <h2>{{ current_niche.name }} <span class="text-purple">· Score {{ current_niche.score }}</span></h2>
         <p class="lead-text">{{ current_niche.description }}</p>
-        
-        <div class="stats-row inline">
-            <div class="mini-stat-card">
-                <span class="mini-title">Traffic Trend</span>
-                <span class="mini-value text-green">{{ current_niche.traffic_trend }}</span>
-            </div>
-            <div class="mini-stat-card">
-                <span class="mini-title">Avg Engagement</span>
-                <span class="mini-value text-purple">{{ current_niche.engagement }}</span>
-            </div>
-            <div class="mini-stat-card">
-                <span class="mini-title">Subscribers Trend</span>
-                <span class="mini-value text-blue">{{ current_niche.subscriber_growth }}</span>
-            </div>
-        </div>
     </div>
 </div>
+{% else %}
+<div class="card">
+    <p class="empty-state">No active niche yet. The Niche Scout will discover one on the next swarm cycle.</p>
+</div>
+{% endif %}
 
 <div class="card margin-top">
     <div class="card-header">
-        <h3>Discovered Alternative Niches</h3>
+        <h3>Discovered Niches</h3>
     </div>
     <table class="data-table">
         <thead>
             <tr>
                 <th>Niche Name</th>
                 <th>Monetization Score</th>
-                <th>Current Status</th>
+                <th>Status</th>
+                <th>Last Decision</th>
             </tr>
         </thead>
         <tbody>
@@ -49,11 +41,14 @@
                 <td><strong>{{ niche.name }}</strong></td>
                 <td>{{ niche.score }}</td>
                 <td>
-                    <span class="badge {% if niche.status == 'active' %}green{% else %}gray{% endif %}">
+                    <span class="badge {% if niche.status == 'active' %}green{% elif niche.status == 'killed' %}red{% else %}gray{% endif %}">
                         {{ niche.status }}
                     </span>
                 </td>
+                <td>{{ niche.decision or '—' }}</td>
             </tr>
+            {% else %}
+            <tr><td colspan="4" class="empty-state">No niches discovered yet.</td></tr>
             {% endfor %}
         </tbody>
     </table>

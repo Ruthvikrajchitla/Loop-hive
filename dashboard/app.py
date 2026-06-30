@@ -21,7 +21,6 @@ import asyncio
 from core.config import config
 from storage.database import init_db
 from dashboard.routes import router
-from agents.orchestrator import OrchestratorAgent
 
 logger = structlog.get_logger(__name__)
 
@@ -49,35 +48,37 @@ if static_dir.exists():
 app.include_router(router)
 
 
-async def run_swarm_periodically():
-    """Runs the orchestrator agent loop once every 24 hours autonomously."""
-    # Wait 60 seconds after dashboard startup to run the first cycle
-    await asyncio.sleep(60)
-    orchestrator = OrchestratorAgent()
-    while True:
-        try:
-            logger.info("scheduled_swarm_run_started")
-            await orchestrator.act({"goal": "Autonomous 24-hour swarm cycle"})
-            logger.info("scheduled_swarm_run_completed")
-        except Exception as e:
-            logger.error("scheduled_swarm_run_failed", error=str(e))
-        
-        # Sleep for 24 hours (86400 seconds)
-        await asyncio.sleep(86400)
+async def run_swarm_background():
+    """Run the full autonomous swarm loop (MicroLoop + weekly/monthly tiers).
+
+    Reuses the same code path as `python main.py --swarm` so the dashboard and the
+    CLI behave identically. Gate with RUN_SWARM_IN_DASHBOARD=false on Render if you
+    prefer to run the swarm as a separate background worker.
+    """
+    # Small delay so the web server is serving before the first heavy cycle.
+    await asyncio.sleep(float(os.getenv("SWARM_START_DELAY_SECONDS", "30")))
+    try:
+        from main import run_swarm
+        await run_swarm(continuous=True)
+    except Exception as e:
+        logger.error("background_swarm_failed", error=str(e))
 
 
 @app.on_event("startup")
 async def startup_event():
-    """Run database schema migration / creations and launch background swarm task."""
+    """Create DB schema and (optionally) launch the background autonomous swarm."""
     logger.info("dashboard_startup")
     try:
         await init_db()
         logger.info("database_initialized")
-        # Start the background autonomous swarm task
-        asyncio.create_task(run_swarm_periodically())
-        logger.info("background_swarm_task_started")
     except Exception as e:
         logger.error("database_init_failed", error=str(e))
+
+    if os.getenv("RUN_SWARM_IN_DASHBOARD", "true").lower() in ("1", "true", "yes"):
+        asyncio.create_task(run_swarm_background())
+        logger.info("background_swarm_task_started")
+    else:
+        logger.info("background_swarm_disabled")
 
 
 @app.get("/health")

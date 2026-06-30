@@ -199,12 +199,26 @@ class MicroLoop:
         self.max_iterations = max_iterations
         self.timeout_seconds = timeout_seconds
 
-    async def run(self, agent: AgentProtocol, goal: str) -> LoopResult:
-        """Execute the micro-loop for a given agent and goal."""
-        context = ContextWindow()
+    async def run(
+        self,
+        agent: AgentProtocol,
+        goal: str,
+        context: ContextWindow | None = None,
+    ) -> LoopResult:
+        """Execute the micro-loop for a given agent and goal.
+
+        If ``context`` is provided (e.g. carrying the previous agent's output),
+        it is reused so downstream agents like the critic, plagiarism checker,
+        and compliance agent can perceive the upstream draft. Otherwise a fresh
+        ``ContextWindow`` is created.
+        """
+        if context is None:
+            context = ContextWindow()
         context.add("system", f"Goal: {goal}")
         start_time = time.time()
-        total_tokens = 0
+        # Snapshot the agent's cumulative token counter so we can attribute the
+        # tokens spent *during this run* (agents are long-lived and reused).
+        tokens_before = self._agent_tokens(agent)
 
         logger.info(
             "micro_loop_started",
@@ -212,18 +226,21 @@ class MicroLoop:
             goal=goal[:100],
             max_iterations=self.max_iterations,
         )
+        # Record a live "running" row so the dashboard can see what this agent is
+        # doing *right now* (works across processes via the shared DB).
+        run_id = await self._start_run(agent, goal)
 
         for iteration in range(1, self.max_iterations + 1):
             # Check timeout
             elapsed = time.time() - start_time
             if elapsed > self.timeout_seconds:
                 logger.warning("micro_loop_timeout", agent=agent.name, elapsed=elapsed)
-                return LoopResult(
+                return await self._finish(
+                    agent, goal, tokens_before, run_id,
                     status=LoopStatus.FAILED,
                     reason=f"Timeout after {elapsed:.1f}s",
                     iterations_used=iteration,
-                    total_tokens_used=total_tokens,
-                    duration_seconds=elapsed,
+                    started_at=start_time,
                 )
 
             try:
@@ -250,34 +267,32 @@ class MicroLoop:
                 )
 
                 if verification.is_complete:
-                    duration = time.time() - start_time
                     logger.info(
                         "micro_loop_success",
                         agent=agent.name,
                         iterations=iteration,
-                        duration=duration,
+                        duration=time.time() - start_time,
                     )
-                    return LoopResult(
+                    return await self._finish(
+                        agent, goal, tokens_before, run_id,
                         status=LoopStatus.SUCCESS,
                         output=result,
                         iterations_used=iteration,
-                        total_tokens_used=total_tokens,
-                        duration_seconds=duration,
+                        started_at=start_time,
                     )
 
                 if verification.should_abort:
-                    duration = time.time() - start_time
                     logger.warning(
                         "micro_loop_aborted",
                         agent=agent.name,
                         reason=verification.reason,
                     )
-                    return LoopResult(
+                    return await self._finish(
+                        agent, goal, tokens_before, run_id,
                         status=LoopStatus.ABORTED,
                         reason=verification.reason,
                         iterations_used=iteration,
-                        total_tokens_used=total_tokens,
-                        duration_seconds=duration,
+                        started_at=start_time,
                     )
 
                 if verification.should_retry:
@@ -300,19 +315,123 @@ class MicroLoop:
                 context.add_feedback(f"Error in iteration {iteration}: {str(e)}")
                 continue
 
-        duration = time.time() - start_time
         logger.warning(
             "micro_loop_max_iterations",
             agent=agent.name,
             max_iterations=self.max_iterations,
         )
-        return LoopResult(
+        return await self._finish(
+            agent, goal, tokens_before, run_id,
             status=LoopStatus.MAX_ITERATIONS,
             reason=f"Reached max iterations ({self.max_iterations})",
             iterations_used=self.max_iterations,
-            total_tokens_used=total_tokens,
-            duration_seconds=duration,
+            started_at=start_time,
         )
+
+    # -------------------------------------------------------------------
+    # Helpers — token accounting & run persistence
+    # -------------------------------------------------------------------
+
+    @staticmethod
+    def _agent_tokens(agent: AgentProtocol) -> int:
+        """Read an agent's cumulative token counter, if it exposes one."""
+        state = getattr(agent, "state", None)
+        return int(getattr(state, "total_tokens_used", 0) or 0)
+
+    async def _start_run(self, agent: AgentProtocol, goal: str) -> int | None:
+        """Insert a live 'running' AgentRun row and return its id. Never fatal."""
+        try:
+            import datetime
+            from storage.database import async_session_factory, AgentRun
+
+            async with async_session_factory() as session:
+                async with session.begin():
+                    row = AgentRun(
+                        agent_name=getattr(agent, "name", "unknown"),
+                        task=goal[:500],
+                        status="running",
+                        started_at=datetime.datetime.utcnow(),
+                    )
+                    session.add(row)
+                    await session.flush()
+                    return row.id
+        except Exception as e:
+            logger.debug(
+                "agent_run_start_failed",
+                agent=getattr(agent, "name", "?"),
+                error=str(e)[:200],
+            )
+            return None
+
+    async def _finish(
+        self,
+        agent: AgentProtocol,
+        goal: str,
+        tokens_before: int,
+        run_id: int | None,
+        *,
+        status: LoopStatus,
+        started_at: float,
+        iterations_used: int,
+        output: Any = None,
+        reason: str = "",
+    ) -> LoopResult:
+        """Build the LoopResult, attribute tokens spent this run, and persist it."""
+        tokens_used = max(0, self._agent_tokens(agent) - tokens_before)
+        result = LoopResult(
+            status=status,
+            output=output,
+            reason=reason,
+            iterations_used=iterations_used,
+            total_tokens_used=tokens_used,
+            duration_seconds=time.time() - started_at,
+        )
+        await self._persist_run(agent, goal, result, run_id)
+        return result
+
+    async def _persist_run(
+        self,
+        agent: AgentProtocol,
+        goal: str,
+        result: LoopResult,
+        run_id: int | None = None,
+    ) -> None:
+        """Finalize the run's AgentRun row (updating the live 'running' row if any)."""
+        status_map = {
+            LoopStatus.SUCCESS: "success",
+            LoopStatus.FAILED: "failed",
+            LoopStatus.ABORTED: "aborted",
+            LoopStatus.MAX_ITERATIONS: "max_iterations",
+        }
+        try:
+            import datetime
+            from storage.database import async_session_factory, AgentRun
+
+            async with async_session_factory() as session:
+                async with session.begin():
+                    row = await session.get(AgentRun, run_id) if run_id is not None else None
+                    if row is None:
+                        row = AgentRun(
+                            agent_name=getattr(agent, "name", "unknown"),
+                            task=goal[:500],
+                            started_at=datetime.datetime.utcnow(),
+                        )
+                        session.add(row)
+                    row.status = status_map.get(result.status, "failed")
+                    row.iterations_used = result.iterations_used
+                    row.tokens_used = result.total_tokens_used
+                    row.duration_seconds = result.duration_seconds
+                    row.result_summary = (
+                        str(result.output)[:500] if result.output is not None else None
+                    )
+                    row.error_message = result.reason[:500] if result.reason else None
+                    row.completed_at = datetime.datetime.utcnow()
+        except Exception as e:
+            logger.debug(
+                "agent_run_persist_failed",
+                agent=getattr(agent, "name", "?"),
+                error=str(e)[:200],
+            )
 
 
 # ---------------------------------------------------------------------------

@@ -100,35 +100,28 @@ class ContentCriticAgent(AgentBase):
         return plan
 
     async def verify(self, result: Any, goal: str) -> Verification:
-        """Verify quality score meets our threshold of 70/100."""
-        if not isinstance(result, dict):
+        """Complete once a valid critique is produced.
+
+        The critic's job is to *score* the draft, which it has done as soon as it
+        returns a parseable assessment — so we complete the loop and surface the
+        score. The pass/fail gate (and any rewrite-and-recheck) is the
+        orchestrator's responsibility, since re-running the critic on the same
+        frozen draft would never change the score. A genuine parse failure still
+        retries, because re-asking the LLM may yield valid JSON.
+        """
+        if not isinstance(result, dict) or "score" not in result or "error" in result:
             return Verification(
                 is_complete=False,
                 should_retry=True,
-                feedback="Critique failed to parse correctly.",
+                feedback="Critique failed to parse correctly. Return valid JSON with a 'score'.",
                 reason="Invalid output structure.",
             )
 
         score = float(result.get("score", 0.0))
-        improvements = result.get("improvements", [])
-        critique = result.get("critique", "No critique details.")
-
-        if score < 70.0:
-            feedback_msg = (
-                f"Draft rejected with quality score {score}/100. "
-                f"Critique: {critique}\n"
-                f"Required Improvements:\n" + "\n".join([f"- {i}" for i in improvements])
-            )
-            return Verification(
-                is_complete=False,
-                should_retry=True,  # This will cause the writer agent to retry
-                feedback=feedback_msg,
-                reason="Quality score below 70 threshold.",
-                score=score,
-            )
-
+        passed = score >= 70.0
+        verdict = "approved" if passed else "below the 70/100 threshold"
         return Verification(
             is_complete=True,
             score=score,
-            feedback=f"Draft approved with quality score {score}/100. Ready for plagiarism check.",
+            feedback=f"Draft scored {score}/100 ({verdict}).",
         )

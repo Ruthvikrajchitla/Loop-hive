@@ -2,99 +2,73 @@
 
 {% block title %}Content Pipeline | LoopHive{% endblock %}
 
-{% block page_title %}Article & Newsletter Kanban Pipeline{% endblock %}
+{% block page_title %}Article Pipeline{% endblock %}
 
 {% block content %}
 <div class="kanban-board">
-    <!-- Column 1: Drafts -->
     <div class="kanban-column">
-        <div class="column-header">
-            <h4>Drafting</h4>
-            <span class="count-badge">{{ pipeline.draft|length }}</span>
-        </div>
+        <div class="column-header"><h4>Drafting</h4><span class="count-badge">{{ pipeline.draft|length }}</span></div>
         <div class="kanban-cards">
             {% for item in pipeline.draft %}
             <div class="kanban-card">
                 <h5>{{ item.title }}</h5>
-                <div class="card-meta">
-                    <span>📝 {{ item.words }} words</span>
-                </div>
+                <div class="card-meta"><span>📝 {{ item.words }} words</span></div>
             </div>
-            {% endfor %}
+            {% else %}<p class="empty-col">Empty</p>{% endfor %}
         </div>
     </div>
 
-    <!-- Column 2: Review (Critic) -->
     <div class="kanban-column">
-        <div class="column-header">
-            <h4>In Review</h4>
-            <span class="count-badge">{{ pipeline.review|length }}</span>
-        </div>
+        <div class="column-header"><h4>In Review</h4><span class="count-badge">{{ pipeline.review|length }}</span></div>
         <div class="kanban-cards">
             {% for item in pipeline.review %}
             <div class="kanban-card">
                 <h5>{{ item.title }}</h5>
-                <div class="card-meta">
-                    <span class="badge yellow">Score: {{ item.score }}%</span>
-                </div>
+                <div class="card-meta"><span class="badge yellow">Score: {{ item.score }}</span></div>
             </div>
-            {% endfor %}
+            {% else %}<p class="empty-col">Empty</p>{% endfor %}
         </div>
     </div>
 
-    <!-- Column 3: Plagiarism -->
     <div class="kanban-column">
-        <div class="column-header">
-            <h4>Originality</h4>
-            <span class="count-badge">{{ pipeline.plagiarism|length }}</span>
-        </div>
+        <div class="column-header"><h4>Originality</h4><span class="count-badge">{{ pipeline.plagiarism|length }}</span></div>
         <div class="kanban-cards">
             {% for item in pipeline.plagiarism %}
             <div class="kanban-card">
                 <h5>{{ item.title }}</h5>
                 <div class="card-meta flex-between">
-                    <span class="badge green">Quality: {{ item.score }}%</span>
-                    <span class="badge purple">Orig: {{ item.originality }}%</span>
+                    <span class="badge green">Q: {{ item.score }}</span>
+                    <span class="badge purple">Orig: {{ item.originality }}</span>
                 </div>
             </div>
-            {% endfor %}
+            {% else %}<p class="empty-col">Empty</p>{% endfor %}
         </div>
     </div>
 
-    <!-- Column 4: Compliance -->
     <div class="kanban-column">
-        <div class="column-header">
-            <h4>Compliance</h4>
-            <span class="count-badge">{{ pipeline.compliance|length }}</span>
-        </div>
+        <div class="column-header"><h4>Compliance</h4><span class="count-badge">{{ pipeline.compliance|length }}</span></div>
         <div class="kanban-cards">
             {% for item in pipeline.compliance %}
             <div class="kanban-card">
                 <h5>{{ item.title }}</h5>
-                <div class="card-meta">
-                    <span class="badge green">Ready</span>
-                    <span class="badge gray">FTC+AI</span>
-                </div>
+                <div class="card-meta"><span class="badge gray">FTC + AI</span></div>
             </div>
-            {% endfor %}
+            {% else %}<p class="empty-col">Empty</p>{% endfor %}
         </div>
     </div>
 
-    <!-- Column 5: Published -->
     <div class="kanban-column">
-        <div class="column-header">
-            <h4>Published</h4>
-            <span class="count-badge">{{ pipeline.published|length }}</span>
-        </div>
+        <div class="column-header"><h4>Published</h4><span class="count-badge">{{ pipeline.published|length }}</span></div>
         <div class="kanban-cards">
             {% for item in pipeline.published %}
             <div class="kanban-card border-green">
                 <h5>{{ item.title }}</h5>
-                <div class="card-meta">
-                    <a href="{{ item.url }}" target="_blank" class="btn-sm">View Post ↗</a>
+                <div class="card-meta flex-between">
+                    <span class="badge green">Q: {{ item.score }}</span>
+                    {% if item.url %}<a href="{{ item.url }}" target="_blank" class="btn-link">View ↗</a>{% endif %}
                 </div>
             </div>
-            {% endfor %}
+            {% else %}<p class="empty-col">Empty</p>{% endfor %}
         </div>
     </div>
 </div>

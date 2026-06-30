@@ -78,7 +78,12 @@ class PlagiarismCheckerAgent(AgentBase):
         return report
 
     async def verify(self, result: Any, goal: str) -> Verification:
-        """Enforce the originality threshold (>85)."""
+        """Complete once an originality report is produced.
+
+        Producing the report *is* the agent's task; re-checking the same frozen
+        draft would never change the score. The orchestrator owns the >85 gate and
+        the rewrite-and-recheck decision, and reads ``result.score`` either way.
+        """
         if not isinstance(result, OriginalityReport):
             return Verification(
                 is_complete=False,
@@ -87,23 +92,9 @@ class PlagiarismCheckerAgent(AgentBase):
                 reason="Invalid output type.",
             )
 
-        if not result.passed:
-            feedback_msg = (
-                f"Content failed the plagiarism/originality check with score {result.score:.1f}/100. "
-                f"Uniqueness threshold is 85/100.\n"
-                f"Flagged sections or boilerplate terms to rewrite:\n"
-                + "\n".join([f"- {s}" for s in result.flagged_sections])
-            )
-            return Verification(
-                is_complete=False,
-                should_retry=True,  # Triggers a retry of the writer agent
-                feedback=feedback_msg,
-                reason="Originality score below 85 threshold.",
-                score=result.score,
-            )
-
+        verdict = "passed" if result.passed else "below the 85/100 threshold"
         return Verification(
             is_complete=True,
             score=result.score,
-            feedback=f"Originality check passed: {result.score:.1f}/100. Ready for compliance checking.",
+            feedback=f"Originality check {verdict}: {result.score:.1f}/100.",
         )
