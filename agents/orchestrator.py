@@ -155,6 +155,91 @@ class OrchestratorAgent(AgentBase):
         report["eval_decision"] = eval_res.output.decision.value if eval_res.output else "continue"
         report["eval_reasoning"] = eval_res.output.reasoning if eval_res.output else "No reasoning available."
 
+        # Database persistence
+        try:
+            import datetime
+            from storage.database import async_session_factory, Niche, Content, Product, ComplianceRule
+            from sqlalchemy.future import select
+
+            async with async_session_factory() as session:
+                async with session.begin():
+                    # 1. Save Niche
+                    stmt = select(Niche).where(Niche.name == niche_name)
+                    db_niche = (await session.execute(stmt)).scalar_one_or_none()
+                    if not db_niche:
+                        db_niche = Niche(
+                            name=niche_name,
+                            description="Auto-discovered niche by NicheScout",
+                            score=float(report.get("niche", {}).get("score", 90.0)),
+                            status="active",
+                            started_at=datetime.datetime.utcnow(),
+                        )
+                        session.add(db_niche)
+                        await session.flush()  # Populate db_niche.id
+
+                    # 2. Save Compliance Rules
+                    if rulebook:
+                        for r in rulebook.rules:
+                            stmt = select(ComplianceRule).where(ComplianceRule.rule == r.rule_text)
+                            exist_rule = (await session.execute(stmt)).scalar_one_or_none()
+                            if not exist_rule:
+                                db_rule = ComplianceRule(
+                                    category=r.category,
+                                    platform=r.platform or "substack",
+                                    rule=r.rule_text,
+                                    severity=r.severity,
+                                    disclosure_template=r.disclosure_template,
+                                )
+                                session.add(db_rule)
+
+                    # 3. Save Content
+                    if writer_res.output:
+                        out = writer_res.output
+                        title = out.get("title", f"10 Hacks for {niche_name}") if isinstance(out, dict) else f"10 Hacks for {niche_name}"
+                        body = out.get("polished_body", "") if isinstance(out, dict) else str(out)
+                        
+                        stmt = select(Content).where(Content.title == title)
+                        db_content = (await session.execute(stmt)).scalar_one_or_none()
+                        if not db_content:
+                            db_content = Content(
+                                niche_id=db_niche.id,
+                                title=title,
+                                body=body,
+                                content_type="article",
+                                quality_score=float(report.get("critic_score", 85.0)),
+                                originality_score=float(report.get("originality_score", 90.0)),
+                                status="published",
+                                published_platform="substack",
+                                published_url="https://substack.com",
+                                published_at=datetime.datetime.utcnow(),
+                            )
+                            session.add(db_content)
+
+                    # 4. Save Product
+                    if prod_res.output:
+                        out = prod_res.output
+                        prod_name = out.get("name", f"Ultimate {niche_name} Template") if isinstance(out, dict) else f"Ultimate {niche_name} Template"
+                        prod_price = float(out.get("price", 9.0)) if isinstance(out, dict) else 9.0
+                        prod_desc = out.get("sales_page_copy", "") if isinstance(out, dict) else str(out)
+                        
+                        stmt = select(Product).where(Product.name == prod_name)
+                        db_product = (await session.execute(stmt)).scalar_one_or_none()
+                        if not db_product:
+                            db_product = Product(
+                                niche_id=db_niche.id,
+                                name=prod_name,
+                                price=prod_price,
+                                description=prod_desc,
+                                status="published",
+                                platform="gumroad",
+                                platform_url="https://gumroad.com",
+                            )
+                            session.add(db_product)
+
+            logger.info("database_persistence_success", niche=niche_name)
+        except Exception as e:
+            logger.error("database_persistence_failed", error=str(e))
+
         self.mark_success(report)
         return report
 
