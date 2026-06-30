@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Compliance Audits | LoopHive{% endblock %}
+
+{% block page_title %}Legal Compliance Audits{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h3>Active Compliance Rules</h3>
+        <span class="badge green">Strict Mode Enforced</span>
+    </div>
+    <div class="rules-list margin-top">
+        {% for rule in rules %}
+        <div class="rule-item">
+            <div class="rule-header">
+                <span class="badge purple">{{ rule.category|upper }}</span>
+                <span class="badge red">{{ rule.severity|upper }}</span>
+            </div>
+            <p>{{ rule.rule_text }}</p>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card margin-top">
+    <div class="card-header">
+        <h3>Disclosure Auditing Logs</h3>
+    </div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Document</th>
+                <th>FTC Affiliate Tag</th>
+                <th>EU AI Act Label</th>
+                <th>Audit Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>10 Notion Hacks That Saved Me...</strong></td>
+                <td>✅ Injected</td>
+                <td>✅ [AI-GENERATED CONTENT]</td>
+                <td><span class="badge green">Compliant</span></td>
+            </tr>
+            <tr>
+                <td><strong>Ultimate Notion Productivity Planner...</strong></td>
+                <td>✅ Injected</td>
+                <td>✅ [AI-GENERATED CONTENT]</td>
+                <td><span class="badge green">Compliant</span></td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+{% endblock %}

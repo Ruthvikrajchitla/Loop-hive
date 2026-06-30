@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block title %}Digital Products | LoopHive{% endblock %}
+
+{% block page_title %}Digital Products Storefronts{% endblock %}
+
+{% block content %}
+<div class="products-grid">
+    {% for product in products %}
+    <div class="product-card">
+        <div class="product-header">
+            <span class="badge purple">{{ product.type }}</span>
+            <span class="badge gray">{{ product.platform }}</span>
+        </div>
+        <h3>{{ product.name }}</h3>
+        
+        <div class="product-price-row">
+            <span class="price-label">Target Price:</span>
+            <span class="price-value">${{ product.price }}0</span>
+        </div>
+        
+        <div class="product-stats">
+            <div class="prod-stat">
+                <span>Sales:</span>
+                <strong>{{ product.sales }}</strong>
+            </div>
+            <div class="prod-stat">
+                <span>Revenue:</span>
+                <strong class="text-green">${{ product.revenue }}0</strong>
+            </div>
+        </div>
+
+        <div class="product-actions">
+            <a href="{{ product.url }}" target="_blank" class="btn-primary block text-center">View on Storefront ↗</a>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}LoopHive Swarm{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="logo-area">
+                <span class="logo-icon">🐝</span>
+                <span class="logo-text">LoopHive</span>
+            </div>
+            <nav class="nav-links">
+                <a href="/dashboard" class="nav-item {% if request.url.path == '/dashboard' %}active{% endif %}">
+                    <span class="nav-icon">📊</span> Overview
+                </a>
+                <a href="/niches" class="nav-item {% if request.url.path == '/niches' %}active{% endif %}">
+                    <span class="nav-icon">🔍</span> Niches
+                </a>
+                <a href="/content" class="nav-item {% if request.url.path == '/content' %}active{% endif %}">
+                    <span class="nav-icon">📝</span> Content
+                </a>
+                <a href="/products" class="nav-item {% if request.url.path == '/products' %}active{% endif %}">
+                    <span class="nav-icon">📦</span> Products
+                </a>
+                <a href="/earnings" class="nav-item {% if request.url.path == '/earnings' %}active{% endif %}">
+                    <span class="nav-icon">💰</span> Earnings
+                </a>
+                <a href="/agents" class="nav-item {% if request.url.path == '/agents' %}active{% endif %}">
+                    <span class="nav-icon">🤖</span> Agents
+                </a>
+                <a href="/compliance" class="nav-item {% if request.url.path == '/compliance' %}active{% endif %}">
+                    <span class="nav-icon">⚖️</span> Compliance
+                </a>
+                <a href="/onboarding" class="nav-item {% if request.url.path == '/onboarding' %}active{% endif %}">
+                    <span class="nav-icon">🎓</span> Onboarding
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="status-indicator">
+                    <span class="pulse-dot green"></span> Running on Oracle Cloud
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Workspace -->
+        <div class="workspace">
+            <header class="top-nav">
+                <div class="top-nav-left">
+                    <h2>{% block page_title %}Dashboard{% endblock %}</h2>
+                </div>
+                <div class="top-nav-right">
+                    <div class="niche-badge">Niche: <strong>Notion Productivity</strong></div>
+                </div>
+            </header>
+            
+            <main class="content-body">
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
+    <script src="/static/main.js"></script>
+</body>
+</html>

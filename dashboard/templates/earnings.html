@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block title %}Earnings Breakdown | LoopHive{% endblock %}
+
+{% block page_title %}Earnings & Financial Performance{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h3>Total Balance Sheet</h3>
+    </div>
+    <div class="earnings-summary-value text-green">
+        ${{ summary.total_revenue }}0 <span class="label">Gross Revenue</span>
+    </div>
+    
+    <div class="revenue-breakdown-grid margin-top">
+        <div class="rev-source-card">
+            <h4>Affiliates</h4>
+            <div class="rev-value">${{ summary.breakdown.affiliates }}0</div>
+            <div class="sub-label">Amazon Associates, ShareASale</div>
+        </div>
+        <div class="rev-source-card">
+            <h4>Products</h4>
+            <div class="rev-value text-purple">${{ summary.breakdown.products }}0</div>
+            <div class="sub-label">Gumroad & Payhip sales</div>
+        </div>
+        <div class="rev-source-card">
+            <h4>Newsletter</h4>
+            <div class="rev-value text-blue">${{ summary.breakdown.newsletter }}0</div>
+            <div class="sub-label">Substack premium readers</div>
+        </div>
+        <div class="rev-source-card">
+            <h4>Display Ads</h4>
+            <div class="rev-value">${{ summary.breakdown.ads }}0</div>
+            <div class="sub-label">Google AdSense</div>
+        </div>
+    </div>
+</div>
+{% endblock %}

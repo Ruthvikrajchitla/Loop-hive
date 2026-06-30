@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}Onboarding Guide | LoopHive{% endblock %}
+
+{% block page_title %}Onboarding & Account Checklist{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h3>One-Time Manual Account Checklist</h3>
+        <p>Because these require email verification or CAPTCHAs, you need to manually register them. Once created, paste your keys into the <code>.env</code> file.</p>
+    </div>
+    
+    <div class="steps-list margin-top">
+        {% for step in steps %}
+        <div class="step-card">
+            <div class="step-card-header">
+                <span class="step-number">Step {{ step.num }}</span>
+                <h4>{{ step.task }}</h4>
+            </div>
+            <p>{{ step.desc }}</p>
+            <div class="step-status">
+                <label>
+                    <input type="checkbox" {% if step.done %}checked{% endif %} disabled> Completed
+                </label>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

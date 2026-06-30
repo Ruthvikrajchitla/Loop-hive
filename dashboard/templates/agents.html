@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block title %}Swarm Agents | LoopHive{% endblock %}
+
+{% block page_title %}Agent Swarm Management{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h3>Active Agent Swarm Nodes</h3>
+    </div>
+    <div class="agents-grid">
+        {% for agent in agents %}
+        <div class="agent-card">
+            <div class="agent-header">
+                <h4>{{ agent.name }}</h4>
+                <span class="badge {% if agent.status == 'idle' %}green{% else %}blue{% endif %}">{{ agent.status }}</span>
+            </div>
+            <p class="description">{{ agent.description }}</p>
+            <div class="agent-stats">
+                <div>Runs: <strong>{{ agent.runs }}</strong></div>
+                <div>Success: <strong>{{ agent.success_rate }}</strong></div>
+                <div>Tokens: <strong>{{ agent.tokens }}</strong></div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card margin-top">
+    <div class="card-header">
+        <h3>LLM Free-Tier API Quotas</h3>
+    </div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Provider</th>
+                <th>Model</th>
+                <th>Requests Today</th>
+                <th>Max Limit</th>
+                <th>Remaining</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for name, usage in llm_usage.items() %}
+            <tr>
+                <td><strong>{{ name|capitalize }}</strong></td>
+                <td><code>{{ usage.model }}</code></td>
+                <td>{{ usage.requests_today }}</td>
+                <td>{{ usage.max_rpd }}</td>
+                <td>{{ usage.remaining_today }}</td>
+                <td>
+                    <span class="badge {% if usage.is_exhausted %}red{% else %}green{% endif %}">
+                        {% if usage.is_exhausted %}Exhausted{% else %}Healthy{% endif %}
+                    </span>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
