@@ -6,7 +6,10 @@ Initializes the FastAPI application, mounts templates, and sets up SQLite DB sch
 
 from __future__ import annotations
 
+import sys
 import os
+sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
+
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles

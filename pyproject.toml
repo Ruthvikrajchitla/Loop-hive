@@ -42,6 +42,9 @@ target-version = "py311"
 [tool.setuptools]
 packages = ["core", "agents", "quality", "revenue", "storage", "dashboard", "compliance", "publishers"]
 
+[tool.setuptools.package-data]
+dashboard = ["templates/*.html", "static/*"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
