@@ -43,9 +43,13 @@ class ContentWriterAgent(AgentBase):
         brief: dict = {}
         keywords: list[str] = []
         topic = ""
+        research = ""
 
         for entry in reversed(context.entries):
             content = entry["content"]
+            if "RESEARCH BRIEF" in content and not research:
+                research = content.split("RESEARCH BRIEF", 1)[1].lstrip(" :\n")
+                continue  # don't keyword/topic-parse the research blob
             if "Goal:" in content and "raw_goal" not in brief:
                 brief["raw_goal"] = content.replace("Goal:", "").strip()
             for line in content.split("\n"):
@@ -65,6 +69,7 @@ class ContentWriterAgent(AgentBase):
         brief["title"] = title
         brief["keywords"] = keywords
         brief["content_type"] = "article"
+        brief["research"] = research
 
         return {
             "timestamp": time.time(),
@@ -75,12 +80,18 @@ class ContentWriterAgent(AgentBase):
         """Decide the structure and layout (Outline step)."""
         brief = state.get("brief", {})
         title = brief.get("title", "Topic Guide")
-        
+        research = brief.get("research", "")
+        research_block = (
+            f"\nGround the outline in this RESEARCH BRIEF (use its facts, trends, and "
+            f"recommended structure):\n{research[:6000]}\n" if research else ""
+        )
+
         # Pass 1: Generate an Outline
         outline_prompt = (
             f"Create a detailed structural outline for a 2000+ word article on the topic: '{title}'.\n"
             f"Include target SEO keywords: {', '.join(brief.get('keywords', []))}.\n"
-            f"Specify H2 and H3 headings, and briefly describe what goes under each section.\n\n"
+            f"Specify H2 and H3 headings, and briefly describe what goes under each section.\n"
+            f"{research_block}\n"
             f"Your output must be JSON with 'title', 'keywords', and a list of 'outline_sections' (each "
             f"containing 'heading' and 'description')."
         )
@@ -102,14 +113,22 @@ class ContentWriterAgent(AgentBase):
             for s in outline.get("outline_sections", [])
         ])
 
+        research = brief.get("research", "")
+        research_block = (
+            f"\nUSE THIS RESEARCH (cite specific facts, stats, tools and examples from it; "
+            f"do not contradict or pad beyond it):\n{research[:9000]}\n" if research else ""
+        )
+
         # Pass 2: Write Draft
         draft_prompt = (
             f"You are writing a comprehensive, deep-dive article titled: '{title}'.\n"
-            f"Here is the outline you must follow:\n{outline_str}\n\n"
+            f"Here is the outline you must follow:\n{outline_str}\n"
+            f"{research_block}\n"
             f"Instructions:\n"
             f"- Write in a clear, authoritative, and engaging tone.\n"
             f"- Aim for depth and clarity. Use tables, bullet points, and clean typography.\n"
             f"- Weave keywords ({', '.join(brief.get('keywords', []))}) naturally into the text.\n"
+            f"- Use the concrete facts, statistics and examples from the research above.\n"
             f"- Do not add placeholders. All examples and advice must be real and concrete.\n\n"
             f"Write the full article body in Markdown."
         )

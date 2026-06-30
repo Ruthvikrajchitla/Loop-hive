@@ -97,6 +97,30 @@ class AppConfig:
     )
     topic_pool: list[str] = field(default_factory=_resolve_topics)
 
+    # Deep research (topic research agent)
+    research_enabled: bool = field(
+        default_factory=lambda: os.getenv("RESEARCH_ENABLED", "true").lower() in ("1", "true", "yes")
+    )
+    research_depth: int = field(  # how many search queries / source batches to gather
+        default_factory=lambda: int(os.getenv("RESEARCH_DEPTH", "4"))
+    )
+    research_max_sources: int = field(
+        default_factory=lambda: int(os.getenv("RESEARCH_MAX_SOURCES", "8"))
+    )
+
+    # Mixture-of-Agents "fusion" writing — several models draft, an aggregator fuses.
+    fusion_enabled: bool = field(
+        default_factory=lambda: os.getenv("FUSION_ENABLED", "true").lower() in ("1", "true", "yes")
+    )
+    fusion_proposers: int = field(  # number of independent drafts to fuse
+        default_factory=lambda: int(os.getenv("FUSION_PROPOSERS", "3"))
+    )
+
+    # Ebook rendering
+    ebook_pdf_enabled: bool = field(
+        default_factory=lambda: os.getenv("EBOOK_PDF_ENABLED", "true").lower() in ("1", "true", "yes")
+    )
+
     # Content limits
     max_daily_articles: int = field(
         default_factory=lambda: int(os.getenv("MAX_DAILY_ARTICLES", "5"))
@@ -161,18 +185,44 @@ class AppConfig:
                 priority=3,
             ))
 
-        # Priority 4: OpenRouter (free reasoning models)
+        # NVIDIA NIM — free Nemotron-70B + Qwen (build.nvidia.com). Strong writers.
+        nvidia_key = os.getenv("NVIDIA_API_KEY", "")
+        if nvidia_key:
+            providers.append(LLMProviderConfig(
+                name="nvidia-nemotron",
+                api_key=nvidia_key,
+                base_url="https://integrate.api.nvidia.com/v1",
+                model=os.getenv("NVIDIA_NEMOTRON_MODEL", "nvidia/llama-3.1-nemotron-70b-instruct"),
+                max_rpm=40,
+                max_rpd=1000,
+                max_tpm=100000,
+                priority=3,
+            ))
+            providers.append(LLMProviderConfig(
+                name="nvidia-qwen",
+                api_key=nvidia_key,
+                base_url="https://integrate.api.nvidia.com/v1",
+                model=os.getenv("NVIDIA_QWEN_MODEL", "qwen/qwen2.5-coder-32b-instruct"),
+                max_rpm=40,
+                max_rpd=1000,
+                max_tpm=100000,
+                priority=4,
+            ))
+
+        # Priority 4: OpenRouter (free reasoning models). Model id is env-overridable
+        # because OpenRouter's free model ids change often (set OPENROUTER_MODEL to a
+        # current ':free' model from openrouter.ai/models, e.g. a Qwen/Kimi/DeepSeek one).
         openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
         if openrouter_key:
             providers.append(LLMProviderConfig(
                 name="openrouter",
                 api_key=openrouter_key,
                 base_url="https://openrouter.ai/api/v1",
-                model="deepseek/deepseek-r1:free",
+                model=os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
                 max_rpm=20,
                 max_rpd=200,
                 max_tpm=50000,
-                priority=4,
+                priority=5,
             ))
 
         # Priority 5: Cerebras

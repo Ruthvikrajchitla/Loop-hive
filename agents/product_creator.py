@@ -45,9 +45,14 @@ class ProductCreatorAgent(AgentBase):
         niche = ""
         product_type = "guide"
         topic = ""
+        research = ""
 
         for entry in reversed(context.entries):
-            for line in entry["content"].split("\n"):
+            content = entry["content"]
+            if "RESEARCH BRIEF" in content and not research:
+                research = content.split("RESEARCH BRIEF", 1)[1].lstrip(" :\n")
+                continue
+            for line in content.split("\n"):
                 low = line.lower().strip()
                 if low.startswith("niche:"):
                     niche = line.split(":", 1)[1].strip() or niche
@@ -64,6 +69,7 @@ class ProductCreatorAgent(AgentBase):
             "niche": niche,
             "product_type": product_type,
             "topic": topic,
+            "research": research,
         }
 
     async def reason(self, state: dict, goal: str) -> dict:
@@ -71,12 +77,18 @@ class ProductCreatorAgent(AgentBase):
         niche = state.get("niche", "AI Tools & Workflows")
         product_type = state.get("product_type", "guide")
         topic = state.get("topic", "")
+        research = state.get("research", "")
         focus = topic or goal
+        research_block = (
+            f"Base the product on this RESEARCH BRIEF (use its facts/tools/examples):\n"
+            f"{research[:6000]}\n\n" if research else ""
+        )
 
         prompt = (
             f"Design a digital product in the niche '{niche}'.\n"
             f"Product Type: '{product_type}'.\n"
             f"Specific topic/angle: '{focus}'.\n\n"
+            f"{research_block}"
             f"The product MUST be strictly about '{focus}' within the '{niche}' niche — do not "
             f"introduce unrelated tools or topics. Identify the target audience's pain points, "
             f"list core sections/chapters, and suggest a fair price ($5.00 - $29.00).\n\n"
@@ -109,6 +121,11 @@ class ProductCreatorAgent(AgentBase):
             for s in outline.get("outline", [])
         ])
 
+        research = state.get("research", "")
+        research_block = (
+            f"RESEARCH (use these concrete facts, tools, and examples):\n{research[:9000]}\n\n"
+            if research else ""
+        )
         product_prompt = (
             f"Write the COMPLETE, finished content of this digital product so a buyer could "
             f"use it immediately:\n"
@@ -116,6 +133,7 @@ class ProductCreatorAgent(AgentBase):
             f"Type: {product_type}\n"
             f"Niche: {niche}\n"
             f"Outline:\n{sections_str}\n\n"
+            f"{research_block}"
             f"STRICT OUTPUT RULES:\n"
             f"- Output ONLY the finished document as clean, readable Markdown prose.\n"
             f"- Use '#'/'##'/'###' headings, short paragraphs, bullet lists and numbered steps.\n"

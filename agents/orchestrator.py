@@ -18,6 +18,7 @@ from core.config import config
 from core.loop_engine import ContextWindow, Verification, MicroLoop
 from agents.niche_scout import NicheScoutAgent
 from agents.legal_researcher import LegalResearchAgent
+from agents.research_agent import DeepResearchAgent
 from agents.content_writer import ContentWriterAgent
 from agents.content_critic import ContentCriticAgent
 from agents.plagiarism_checker import PlagiarismCheckerAgent
@@ -48,6 +49,7 @@ class OrchestratorAgent(AgentBase):
         )
         self.scout = NicheScoutAgent(router=self.router)
         self.legal = LegalResearchAgent(router=self.router)
+        self.researcher = DeepResearchAgent(router=self.router)
         self.writer = ContentWriterAgent(router=self.router)
         self.critic = ContentCriticAgent(router=self.router)
         self.plagiarism = PlagiarismCheckerAgent(router=self.router)
@@ -56,6 +58,8 @@ class OrchestratorAgent(AgentBase):
         self.marketing = MarketingAgent(router=self.router)
         self.evaluator = MonthlyEvaluatorAgent(router=self.router)
         self.micro_loop = MicroLoop(max_iterations=5)
+        # Deep research can make many web calls — give it a longer budget.
+        self.research_loop = MicroLoop(max_iterations=2, timeout_seconds=900.0)
         # Max critic/plagiarism → writer revise-and-recheck rounds before publishing as-is.
         self.max_quality_rounds = 3
 
@@ -116,10 +120,26 @@ class OrchestratorAgent(AgentBase):
         rulebook = legal_res.output
         report["rulebook_rules_count"] = len(rulebook.rules) if rulebook else 3
 
-        # 3. Create content — write the specific topic, with niche/keywords in context.
+        # 2.5 Deep topic research — gather real sources + synthesize a brief (quality lever).
+        research_report = ""
+        if config.research_enabled:
+            logger.info("orchestrator_stage", stage="deep_research", topic=topic)
+            research_ctx = ContextWindow()
+            research_ctx.add("system", f"niche: {niche_name}\ntopic: {topic}")
+            research_res = await self.research_loop.run(
+                self.researcher, f"Research the topic: {topic}", context=research_ctx
+            )
+            if isinstance(research_res.output, dict):
+                research_report = research_res.output.get("report", "")
+                report["research_sources"] = research_res.output.get("source_count", 0)
+                report["research_chars"] = len(research_report)
+
+        # 3. Create content — write the specific topic, grounded in the research brief.
         logger.info("orchestrator_stage", stage="content_creation", topic=topic)
         writer_ctx = ContextWindow()
         writer_ctx.add("system", f"niche: {niche_name}\ntopic: {topic}\nkeywords: {', '.join(keywords)}")
+        if research_report:
+            writer_ctx.add("system", f"RESEARCH BRIEF:\n{research_report}")
         writer_res = await self.micro_loop.run(self.writer, topic, context=writer_ctx)
         report["article_written"] = writer_res.output is not None
 
@@ -220,6 +240,8 @@ class OrchestratorAgent(AgentBase):
         logger.info("orchestrator_stage", stage="product_creation", product_type=product_type, topic=topic)
         prod_ctx = ContextWindow()
         prod_ctx.add("system", f"niche: {niche_name}\nproduct_type: {product_type}\ntopic: {topic}")
+        if research_report:
+            prod_ctx.add("system", f"RESEARCH BRIEF:\n{research_report}")
         prod_goal = f"Build a {product_type} for AI users about: {topic}"
         prod_res = await self.micro_loop.run(self.creator, prod_goal, context=prod_ctx)
         report["product_created"] = prod_res.output is not None

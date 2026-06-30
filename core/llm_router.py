@@ -115,8 +115,8 @@ class LLMRouter:
     5. Daily usage reset for each provider
     """
 
-    # Tasks that produce long-form prose → route to quality models, not the 8B.
-    HEAVY_TASKS = {"content_writer", "product_creator"}
+    # Tasks that produce long-form prose / analysis → quality models, not the 8B.
+    HEAVY_TASKS = {"content_writer", "product_creator", "research_agent"}
 
     def __init__(self, providers: list[LLMProviderConfig] | None = None):
         self.providers = providers or config.get_llm_providers()
