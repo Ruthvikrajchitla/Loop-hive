@@ -69,6 +69,9 @@ class AppConfig:
     max_daily_articles: int = field(
         default_factory=lambda: int(os.getenv("MAX_DAILY_ARTICLES", "5"))
     )
+    max_daily_products: int = field(
+        default_factory=lambda: int(os.getenv("MAX_DAILY_PRODUCTS", "2"))
+    )
     max_weekly_products: int = field(
         default_factory=lambda: int(os.getenv("MAX_WEEKLY_PRODUCTS", "1"))
     )

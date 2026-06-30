@@ -107,6 +107,27 @@ async def _aggregate_kpis() -> dict:
     return kpis
 
 
+async def _today_counts() -> tuple[int, int]:
+    """How many articles and products have been produced today (UTC)."""
+    articles = products = 0
+    try:
+        import datetime
+        from storage.database import async_session_factory, Content, Product
+        from sqlalchemy import select, func
+        now = datetime.datetime.utcnow()
+        today = datetime.datetime(now.year, now.month, now.day)
+        async with async_session_factory() as session:
+            articles = (await session.execute(
+                select(func.count(Content.id)).where(Content.created_at >= today)
+            )).scalar() or 0
+            products = (await session.execute(
+                select(func.count(Product.id)).where(Product.created_at >= today)
+            )).scalar() or 0
+    except Exception as e:
+        logger.debug("today_counts_failed", error=str(e))
+    return articles, products
+
+
 async def _apply_macro_decision(niche_name: str, decision: MacroDecision) -> None:
     """Persist the monthly verdict (pivot/kill flips the niche status)."""
     if decision == MacroDecision.CONTINUE:
@@ -161,9 +182,32 @@ async def run_swarm(continuous: bool = True, interval: float | None = None) -> N
     print("[LoopHive] Swarm initialized. Entering autonomous loop"
           + (" (single cycle)." if not continuous else f" (every {interval:.0f}s).") )
 
+    target_articles = config.max_daily_articles
+    target_products = config.max_daily_products
+    idle_seconds = float(os.getenv("SWARM_IDLE_SECONDS", "1800"))  # re-check every 30 min when target met
+
     while True:
+        # --- Daily target gate: build until quota met, then idle until tomorrow ---
+        articles_today, products_today = await _today_counts()
+        if articles_today >= target_articles and products_today >= target_products:
+            logger.info(
+                "daily_target_reached",
+                articles=articles_today, products=products_today,
+                target_articles=target_articles, target_products=target_products,
+            )
+            print(f"\n[LoopHive] Daily target met ({articles_today} articles, "
+                  f"{products_today} products). Idling until the next day…")
+            if not continuous:
+                break
+            await asyncio.sleep(idle_seconds)
+            continue
+
         cycle += 1
-        logger.info("swarm_cycle_start", cycle=cycle)
+        logger.info(
+            "swarm_cycle_start", cycle=cycle,
+            articles_today=articles_today, products_today=products_today,
+            target_articles=target_articles, target_products=target_products,
+        )
 
         # --- Tier 1: MicroLoop — run the full pipeline through perceive→verify ---
         res = await micro.run(

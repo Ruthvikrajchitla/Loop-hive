@@ -1,0 +1,18 @@
+[Unit]
+Description=LoopHive Autonomous Swarm + Dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/Loop-hive
+# .env in the working directory is loaded automatically (python-dotenv).
+ExecStart=/home/ubuntu/Loop-hive/.venv/bin/uvicorn dashboard.app:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=10
+# Keep restarting forever even after many crashes
+StartLimitIntervalSec=0
+
+[Install]
+WantedBy=multi-user.target
