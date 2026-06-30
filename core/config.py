@@ -26,6 +26,28 @@ def _resolve_db_url() -> str:
     return url
 
 
+def _resolve_topics() -> list[str]:
+    """Content/product topics within the niche. Override with TOPIC_POOL (| separated)."""
+    raw = os.getenv("TOPIC_POOL", "")
+    if raw.strip():
+        return [t.strip() for t in raw.split("|") if t.strip()]
+    # Default "AI Hub" rotation — varied formats + subjects so content isn't repetitive.
+    return [
+        "The best AI tools for content creation in 2026",
+        "How to build an agentic research workflow step by step",
+        "The complete prompt engineering guide for professionals",
+        "Top AI automation tools to save 10+ hours a week",
+        "Setting up your first AI agent stack: a beginner's guide",
+        "Best AI coding assistants compared",
+        "How to automate your marketing with AI agents",
+        "The complete guide to RAG and AI knowledge bases",
+        "AI productivity systems for knowledge workers",
+        "Best free AI tools every founder should know",
+        "How to chain AI agents into an end-to-end workflow",
+        "The ultimate ChatGPT + Claude prompt playbook",
+    ]
+
+
 @dataclass
 class LLMProviderConfig:
     """Configuration for a single LLM provider."""
@@ -39,6 +61,7 @@ class LLMProviderConfig:
     priority: int  # Lower = higher priority in cascade
     supports_json: bool = True
     supports_streaming: bool = True
+    quality: bool = True  # Strong enough for writing? Weak models (e.g. 8B) set False.
 
 
 @dataclass
@@ -64,6 +87,15 @@ class AppConfig:
     plagiarism_threshold: int = field(
         default_factory=lambda: int(os.getenv("PLAGIARISM_THRESHOLD", "85"))
     )
+
+    # Niche focus — force the swarm onto one niche instead of re-discovering each cycle.
+    # Empty string lets the NicheScout discover niches as before.
+    forced_niche: str = field(
+        default_factory=lambda: os.getenv(
+            "FORCED_NICHE", "AI Tools, Agentic Workflows & Prompt Engineering"
+        )
+    )
+    topic_pool: list[str] = field(default_factory=_resolve_topics)
 
     # Content limits
     max_daily_articles: int = field(
@@ -116,6 +148,7 @@ class AppConfig:
                 max_rpd=14400,
                 max_tpm=6000,
                 priority=2,
+                quality=False,  # Fast but weak at long-form prose — kept off writing tasks.
             ))
             providers.append(LLMProviderConfig(
                 name="groq-smart",

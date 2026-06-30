@@ -38,20 +38,34 @@ class ContentWriterAgent(AgentBase):
         )
 
     async def perceive(self, context: ContextWindow) -> dict:
-        """Parse the incoming goal or topic from the context."""
+        """Parse the topic, niche, and keywords from the context."""
         self.mark_running()
-        # Find the latest task description or brief
-        brief = {}
-        for entry in reversed(context.entries):
-            if "Goal:" in entry["content"]:
-                brief["raw_goal"] = entry["content"].replace("Goal:", "").strip()
-                break
+        brief: dict = {}
+        keywords: list[str] = []
+        topic = ""
 
-        # Defaults
-        brief["title"] = brief.get("raw_goal", "Niche Topic Guide")
-        brief["keywords"] = ["productivity", "tools", "guide"]
+        for entry in reversed(context.entries):
+            content = entry["content"]
+            if "Goal:" in content and "raw_goal" not in brief:
+                brief["raw_goal"] = content.replace("Goal:", "").strip()
+            for line in content.split("\n"):
+                low = line.lower().strip()
+                if low.startswith("keywords:"):
+                    keywords = [k.strip() for k in line.split(":", 1)[1].split(",") if k.strip()]
+                elif low.startswith("topic:"):
+                    topic = line.split(":", 1)[1].strip()
+
+        # Prefer the explicit topic; fall back to the goal text.
+        title = topic or brief.get("raw_goal", "AI Tools Guide")
+        if not keywords:
+            keywords = [w for w in title.lower().replace(":", " ").split() if len(w) > 4][:6]
+        if not keywords:
+            keywords = ["ai", "tools", "workflow"]
+
+        brief["title"] = title
+        brief["keywords"] = keywords
         brief["content_type"] = "article"
-        
+
         return {
             "timestamp": time.time(),
             "brief": brief,

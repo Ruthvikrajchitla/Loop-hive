@@ -40,48 +40,48 @@ class ProductCreatorAgent(AgentBase):
         )
 
     async def perceive(self, context: ContextWindow) -> dict:
-        """Find the active niche and target product type from context."""
+        """Read the niche, product type, and topic from context (no Notion default)."""
         self.mark_running()
-        niche = "Notion Productivity"
-        product_type = "checklist"
+        niche = ""
+        product_type = "guide"
+        topic = ""
 
-        # Search context for niche details
         for entry in reversed(context.entries):
-            if "niche" in entry["content"].lower():
-                # Extract niche name
-                lines = entry["content"].split("\n")
-                for line in lines:
-                    if "niche" in line.lower():
-                        parts = line.split(":")
-                        if len(parts) > 1:
-                            niche = parts[1].strip()
-            if "product_type" in entry["content"].lower():
-                lines = entry["content"].split("\n")
-                for line in lines:
-                    if "product_type" in line.lower():
-                        parts = line.split(":")
-                        if len(parts) > 1:
-                            product_type = parts[1].strip()
+            for line in entry["content"].split("\n"):
+                low = line.lower().strip()
+                if low.startswith("niche:"):
+                    niche = line.split(":", 1)[1].strip() or niche
+                elif low.startswith("product_type:"):
+                    product_type = line.split(":", 1)[1].strip() or product_type
+                elif low.startswith("topic:"):
+                    topic = line.split(":", 1)[1].strip() or topic
+
+        if not niche:
+            niche = "AI Tools & Workflows"
 
         return {
             "timestamp": time.time(),
             "niche": niche,
             "product_type": product_type,
+            "topic": topic,
         }
 
     async def reason(self, state: dict, goal: str) -> dict:
         """Outline the digital product and structure the chapters or segments (Outline step)."""
-        niche = state.get("niche", "General")
-        product_type = state.get("product_type", "checklist")
+        niche = state.get("niche", "AI Tools & Workflows")
+        product_type = state.get("product_type", "guide")
+        topic = state.get("topic", "")
+        focus = topic or goal
 
         prompt = (
-            f"Design a digital product for the niche '{niche}'.\n"
-            f"Product Type: '{product_type}'.\n\n"
-            f"Create a comprehensive outline of the product. Identify target audience pain points, "
-            f"list core sections/chapters, and suggest a fair price ($2.00 - $19.00).\n\n"
-            f"Goal: {goal}\n\n"
+            f"Design a digital product in the niche '{niche}'.\n"
+            f"Product Type: '{product_type}'.\n"
+            f"Specific topic/angle: '{focus}'.\n\n"
+            f"The product MUST be strictly about '{focus}' within the '{niche}' niche — do not "
+            f"introduce unrelated tools or topics. Identify the target audience's pain points, "
+            f"list core sections/chapters, and suggest a fair price ($5.00 - $29.00).\n\n"
             f"Output a JSON object containing:\n"
-            f"- 'product_name': string\n"
+            f"- 'product_name': string (must reflect the topic '{focus}')\n"
             f"- 'niche': string\n"
             f"- 'target_price': float\n"
             f"- 'outline': list of section dictionaries (each with 'title' and 'objectives')\n"
@@ -110,18 +110,21 @@ class ProductCreatorAgent(AgentBase):
         ])
 
         product_prompt = (
-            f"Write the complete content body for a digital product:\n"
+            f"Write the COMPLETE, finished content of this digital product so a buyer could "
+            f"use it immediately:\n"
             f"Name: {product_name}\n"
             f"Type: {product_type}\n"
             f"Niche: {niche}\n"
             f"Outline:\n{sections_str}\n\n"
-            f"Instructions:\n"
-            f"- Generate the complete, fully-written text of the product. Do not use placeholders.\n"
-            f"- Ensure it is highly detailed, practical, and directly useful. Write in Markdown.\n"
-            f"- Include actionable steps, tips, and exercises."
+            f"STRICT OUTPUT RULES:\n"
+            f"- Output ONLY the finished document as clean, readable Markdown prose.\n"
+            f"- Use '#'/'##'/'###' headings, short paragraphs, bullet lists and numbered steps.\n"
+            f"- DO NOT output JSON, key/value data, or any ``` code fences around the document.\n"
+            f"- No placeholders — write the real, detailed, practical content with concrete examples, "
+            f"steps, and tips. Aim for a polished, sellable deliverable."
         )
 
-        product_body = await self.ask_llm(product_prompt, temperature=0.6)
+        product_body = self._strip_code_fence(await self.ask_llm(product_prompt, temperature=0.6))
 
         # Generate Sales landing page copy
         sales_prompt = (
@@ -151,8 +154,31 @@ class ProductCreatorAgent(AgentBase):
         self.mark_success(result)
         return result
 
+    @staticmethod
+    def _strip_code_fence(text: str) -> str:
+        """Remove a wrapping ``` / ```json code fence if the model added one."""
+        t = (text or "").strip()
+        if t.startswith("```"):
+            first_nl = t.find("\n")
+            if first_nl != -1:
+                t = t[first_nl + 1:]
+            if t.rstrip().endswith("```"):
+                t = t.rstrip()[:-3]
+        return t.strip()
+
+    @staticmethod
+    def _looks_like_json(body: str) -> bool:
+        """Heuristic: did the model dump JSON/data instead of writing a document?"""
+        s = (body or "").strip()
+        if s.startswith("{") or s.startswith("["):
+            return True
+        if s.startswith("```json"):
+            return True
+        # JSON-ish: lots of quoted keys, no markdown headings.
+        return s.count('":') >= 3 and "#" not in s
+
     async def verify(self, result: Any, goal: str) -> Verification:
-        """Verify the product content has enough depth and has accompanying sales copy."""
+        """Verify the product is a finished Markdown document with sales copy."""
         if not isinstance(result, dict) or "body" not in result:
             return Verification(
                 is_complete=False,
@@ -163,6 +189,17 @@ class ProductCreatorAgent(AgentBase):
 
         body = result.get("body", "")
         sales_copy = result.get("sales_page_copy", "")
+
+        if self._looks_like_json(body) or "#" not in body:
+            return Verification(
+                is_complete=False,
+                should_retry=True,
+                feedback=(
+                    "The product body must be a FINISHED Markdown document with #/## headings and "
+                    "readable prose — not JSON, raw data, or a code block. Rewrite it as a real guide."
+                ),
+                reason="Product body is not Markdown prose.",
+            )
 
         if len(body) < 1500:
             return Verification(

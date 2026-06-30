@@ -87,16 +87,28 @@ class OrchestratorAgent(AgentBase):
         """Run the full execution pipeline end-to-end (Simulated / Prototype flow)."""
         report = {}
         
-        # 1. Discover niches
-        logger.info("orchestrator_stage", stage="niche_discovery")
-        scout_res = await self.micro_loop.run(self.scout, "Find the top 3 rising monetization niches.")
-        if scout_res.output:
-            niche = scout_res.output[0]
-            report["niche"] = niche.to_dict()
-        else:
-            report["niche"] = {"name": "Notion Productivity", "score": 90.0}
+        import json
+        import random
 
-        niche_name = report["niche"]["name"]
+        # 1. Niche selection — force a niche if configured, else discover one.
+        if config.forced_niche:
+            niche_name = config.forced_niche
+            report["niche"] = {"name": niche_name, "score": 95.0}
+            logger.info("orchestrator_stage", stage="niche_forced", niche=niche_name)
+        else:
+            logger.info("orchestrator_stage", stage="niche_discovery")
+            scout_res = await self.micro_loop.run(self.scout, "Find the top 3 rising monetization niches.")
+            if scout_res.output:
+                report["niche"] = scout_res.output[0].to_dict()
+            else:
+                report["niche"] = {"name": "Notion Productivity", "score": 90.0}
+            niche_name = report["niche"]["name"]
+
+        # Pick a specific topic within the niche so each cycle produces fresh,
+        # on-topic content (instead of writing about the niche name itself).
+        topic = random.choice(config.topic_pool) if config.topic_pool else f"a complete guide to {niche_name}"
+        keywords = [w for w in topic.lower().replace(":", "").split() if len(w) > 4][:6]
+        report["topic"] = topic
 
         # 2. Perform legal research
         logger.info("orchestrator_stage", stage="legal_research", niche=niche_name)
@@ -104,9 +116,11 @@ class OrchestratorAgent(AgentBase):
         rulebook = legal_res.output
         report["rulebook_rules_count"] = len(rulebook.rules) if rulebook else 3
 
-        # 3. Create content (and verify through critic, plagiarism, and compliance)
-        logger.info("orchestrator_stage", stage="content_creation")
-        writer_res = await self.micro_loop.run(self.writer, f"Write a long-form article for {niche_name}.")
+        # 3. Create content — write the specific topic, with niche/keywords in context.
+        logger.info("orchestrator_stage", stage="content_creation", topic=topic)
+        writer_ctx = ContextWindow()
+        writer_ctx.add("system", f"niche: {niche_name}\ntopic: {topic}\nkeywords: {', '.join(keywords)}")
+        writer_res = await self.micro_loop.run(self.writer, topic, context=writer_ctx)
         report["article_written"] = writer_res.output is not None
 
         # 4-6. Quality gate: critic + plagiarism, with revise-and-recheck.
@@ -199,10 +213,15 @@ class OrchestratorAgent(AgentBase):
                 # Persist the compliance-wrapped body so the saved article is publish-ready.
                 writer_res.output = comply_res.output
 
-        # 7. Build digital product
+        # 7. Build digital product — rotate format, tie it to the same topic, and
+        #    pass the niche/type in context so the creator stops defaulting to Notion.
         mkt_res = None
-        logger.info("orchestrator_stage", stage="product_creation")
-        prod_res = await self.micro_loop.run(self.creator, f"Build a cheat sheet product for {niche_name}.")
+        product_type = random.choice(["prompt pack", "setup guide", "checklist", "ebook", "playbook"])
+        logger.info("orchestrator_stage", stage="product_creation", product_type=product_type, topic=topic)
+        prod_ctx = ContextWindow()
+        prod_ctx.add("system", f"niche: {niche_name}\nproduct_type: {product_type}\ntopic: {topic}")
+        prod_goal = f"Build a {product_type} for AI users about: {topic}"
+        prod_res = await self.micro_loop.run(self.creator, prod_goal, context=prod_ctx)
         report["product_created"] = prod_res.output is not None
         if prod_res.output:
             report["product_name"] = prod_res.output.get("name")

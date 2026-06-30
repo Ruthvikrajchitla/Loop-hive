@@ -115,6 +115,9 @@ class LLMRouter:
     5. Daily usage reset for each provider
     """
 
+    # Tasks that produce long-form prose → route to quality models, not the 8B.
+    HEAVY_TASKS = {"content_writer", "product_creator"}
+
     def __init__(self, providers: list[LLMProviderConfig] | None = None):
         self.providers = providers or config.get_llm_providers()
         self.usage: dict[str, ProviderUsage] = {
@@ -156,10 +159,17 @@ class LLMRouter:
         max_attempts = 4
         last_errors: list[str] = []
 
+        # For writing-heavy tasks, try quality models first and demote weak ones
+        # (e.g. Llama-8B) to last resort so product/article bodies stay high quality.
+        if task_type in self.HEAVY_TASKS:
+            providers = sorted(self.providers, key=lambda p: (0 if p.quality else 1, p.priority))
+        else:
+            providers = self.providers
+
         for attempt in range(1, max_attempts + 1):
             errors: list[str] = []
 
-            for provider in self.providers:
+            for provider in providers:
                 usage = self.usage[provider.name]
 
                 if not usage.can_make_request(provider):

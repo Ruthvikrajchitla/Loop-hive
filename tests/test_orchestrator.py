@@ -96,7 +96,7 @@ async def mock_llm_generate(messages, temperature=0.7, max_tokens=4096, json_mod
         }
 
     # 4. Content Writer Polishing
-    elif "editing the following article" in user_prompt or "polish" in user_prompt:
+    elif "editing the following article" in user_prompt:
         # Generate a sufficiently long body (> 1000 characters)
         long_body = (
             "# 10 Notion Hacks That Saved Me 5 Hours/Week\n\n"
@@ -176,7 +176,7 @@ async def mock_llm_generate(messages, temperature=0.7, max_tokens=4096, json_mod
         }
 
     # 8. Product Content drafting
-    elif "write the complete content body" in user_prompt:
+    elif "finished content of this digital product" in user_prompt or "write the complete content body" in user_prompt:
         # Generate a sufficiently long product content (> 1500 characters)
         long_product_body = (
             "# Ultimate Notion Productivity Planner\n\n"
@@ -264,6 +264,10 @@ async def test_full_pipeline_orchestration(mock_generate):
     """Verify that the orchestrator runs the entire swarm pipeline successfully."""
     # Wire the mock generate behavior
     mock_generate.side_effect = mock_llm_generate
+
+    # This test exercises the niche-discovery path, so disable the forced niche.
+    from core.config import config
+    config.forced_niche = ""
 
     # Initialize the orchestrator
     orchestrator = OrchestratorAgent()
