@@ -164,6 +164,87 @@ class AgentBase(ABC):
             self.logger.error("json_parse_failed", response=text[:200])
             return {"error": "Failed to parse JSON", "raw_response": text[:500]}
 
+    async def ask_llm_fused(
+        self,
+        prompt: str,
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+    ) -> str:
+        """Mixture-of-Agents: several models draft, then an aggregator fuses them.
+
+        Produces a stronger result than any single model. Falls back to a normal
+        single-model call if fusion is disabled or too few providers are available.
+        """
+        from core.config import config
+
+        if not config.fusion_enabled:
+            return await self.ask_llm(prompt, temperature=temperature, max_tokens=max_tokens)
+
+        names = self.router.quality_provider_names()
+        aggregator = config.fusion_aggregator if config.fusion_aggregator in names else (names[0] if names else None)
+        # Proposers = distinct quality models, excluding the aggregator.
+        proposers = [n for n in names if n != aggregator][: max(2, config.fusion_proposers)]
+
+        if len(proposers) < 2:
+            return await self.ask_llm(prompt, temperature=temperature, max_tokens=max_tokens)
+
+        # 1. Gather independent drafts.
+        drafts: list[str] = []
+        for pname in proposers:
+            try:
+                result = await self.router.generate(
+                    messages=[
+                        {"role": "system", "content": self.system_prompt},
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    task_type=self.name,
+                    only_provider=pname,
+                )
+                self.state.total_tokens_used += result.get("tokens_used", 0)
+                text = (result.get("content") or "").strip()
+                if len(text) > 200:
+                    drafts.append(text)
+            except Exception as e:
+                self.logger.warning("fusion_proposer_failed", provider=pname, error=str(e)[:150])
+
+        if not drafts:
+            return await self.ask_llm(prompt, temperature=temperature, max_tokens=max_tokens)
+        if len(drafts) == 1:
+            return drafts[0]
+
+        # 2. Aggregator fuses the drafts into one superior version.
+        drafts_block = "\n\n".join(f"=== DRAFT {i+1} ===\n{d}" for i, d in enumerate(drafts))
+        fuse_prompt = (
+            "Below are several independent drafts written for the same task. Synthesize them into a "
+            "SINGLE, superior final version that combines the best ideas, facts, structure and phrasing "
+            "from each, removes errors, repetition and filler, and reads as one coherent, original piece. "
+            "Do not mention the drafts or that this is a synthesis. Output only the final Markdown.\n\n"
+            f"ORIGINAL TASK:\n{prompt[:2500]}\n\n{drafts_block[:24000]}"
+        )
+        try:
+            result = await self.router.generate(
+                messages=[
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": fuse_prompt},
+                ],
+                temperature=0.4,
+                max_tokens=max_tokens,
+                task_type=self.name,
+                only_provider=aggregator,
+            )
+            self.state.total_tokens_used += result.get("tokens_used", 0)
+            fused = (result.get("content") or "").strip()
+            self.logger.info("fusion_complete", proposers=len(drafts), aggregator=aggregator, chars=len(fused))
+            if len(fused) > 200:
+                return fused
+        except Exception as e:
+            self.logger.warning("fusion_aggregator_failed", aggregator=aggregator, error=str(e)[:150])
+
+        # Aggregator failed → return the longest draft as a safe fallback.
+        return max(drafts, key=len)
+
     # -------------------------------------------------------------------
     # State management
     # -------------------------------------------------------------------

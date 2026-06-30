@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import random
 import time
 from dataclasses import dataclass, field
@@ -131,8 +132,15 @@ class LLMRouter:
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(timeout=120.0)
+            # Generous timeout — big reasoning models (e.g. Nemotron-Ultra) are slow.
+            timeout = float(os.getenv("LLM_TIMEOUT_SECONDS", "240"))
+            self._client = httpx.AsyncClient(timeout=timeout)
         return self._client
+
+    def quality_provider_names(self) -> list[str]:
+        """Available, quality-capable providers ordered best-first (for fusion)."""
+        ordered = sorted(self.providers, key=lambda p: (0 if p.quality else 1, p.priority))
+        return [p.name for p in ordered if p.quality and self.usage[p.name].can_make_request(p)]
 
     async def close(self):
         if self._client and not self._client.is_closed:
@@ -145,6 +153,7 @@ class LLMRouter:
         max_tokens: int = 4096,
         json_mode: bool = False,
         task_type: str = "general",
+        only_provider: str | None = None,
     ) -> dict:
         """
         Generate a completion using the best available provider.
@@ -159,9 +168,14 @@ class LLMRouter:
         max_attempts = 4
         last_errors: list[str] = []
 
+        # Pin to one provider (used by MoA fusion to target a specific model).
+        if only_provider:
+            providers = [p for p in self.providers if p.name == only_provider]
+            if not providers:
+                raise RuntimeError(f"Unknown provider '{only_provider}'")
         # For writing-heavy tasks, try quality models first and demote weak ones
         # (e.g. Llama-8B) to last resort so product/article bodies stay high quality.
-        if task_type in self.HEAVY_TASKS:
+        elif task_type in self.HEAVY_TASKS:
             providers = sorted(self.providers, key=lambda p: (0 if p.quality else 1, p.priority))
         else:
             providers = self.providers
@@ -385,7 +399,13 @@ class LLMRouter:
         response.raise_for_status()
         data = response.json()
 
-        content = data["choices"][0]["message"]["content"]
+        msg = data["choices"][0].get("message", {})
+        # Reasoning models (e.g. Nemotron-Ultra) may put the answer in content, or
+        # leave content null with the text under reasoning_content. Handle both, and
+        # strip any <think>…</think> traces.
+        content = msg.get("content") or msg.get("reasoning_content") or ""
+        if "</think>" in content:
+            content = content.split("</think>")[-1].strip()
         tokens_used = data.get("usage", {}).get("total_tokens", 0)
 
         return {

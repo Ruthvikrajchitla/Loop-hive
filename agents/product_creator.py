@@ -142,7 +142,8 @@ class ProductCreatorAgent(AgentBase):
             f"steps, and tips. Aim for a polished, sellable deliverable."
         )
 
-        product_body = self._strip_code_fence(await self.ask_llm(product_prompt, temperature=0.6))
+        # Mixture-of-Agents fusion for the core deliverable (the sellable body).
+        product_body = self._strip_code_fence(await self.ask_llm_fused(product_prompt, temperature=0.6))
 
         # Generate Sales landing page copy
         sales_prompt = (

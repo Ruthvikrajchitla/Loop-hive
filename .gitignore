@@ -54,3 +54,8 @@ venv.bak/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Downloaded sample product files
+*-cheat-sheet.md
+*master-kit*.md
+_test_*.pdf

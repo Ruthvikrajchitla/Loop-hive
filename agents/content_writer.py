@@ -133,7 +133,8 @@ class ContentWriterAgent(AgentBase):
             f"Write the full article body in Markdown."
         )
 
-        draft = await self.ask_llm(draft_prompt, temperature=0.7)
+        # Mixture-of-Agents: multiple models draft, an aggregator fuses the best.
+        draft = await self.ask_llm_fused(draft_prompt, temperature=0.7)
 
         # Pass 3: Self-Edit/Polish
         polish_prompt = (

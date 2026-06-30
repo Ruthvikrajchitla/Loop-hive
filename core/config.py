@@ -115,6 +115,9 @@ class AppConfig:
     fusion_proposers: int = field(  # number of independent drafts to fuse
         default_factory=lambda: int(os.getenv("FUSION_PROPOSERS", "3"))
     )
+    fusion_aggregator: str = field(  # provider name that fuses the drafts ("" = auto)
+        default_factory=lambda: os.getenv("FUSION_AGGREGATOR", "nvidia-ultra")
+    )
 
     # Ebook rendering
     ebook_pdf_enabled: bool = field(
@@ -185,28 +188,31 @@ class AppConfig:
                 priority=3,
             ))
 
-        # NVIDIA NIM — free Nemotron-70B + Qwen (build.nvidia.com). Strong writers.
+        # NVIDIA NIM (build.nvidia.com) — free Nemotron models.
+        #  - nvidia-nemotron : Nemotron-Super-49B, the fast quality workhorse
+        #  - nvidia-ultra    : Nemotron-Ultra-550B, premium model used as the
+        #                      fusion aggregator (slow/reasoning; low cascade priority)
         nvidia_key = os.getenv("NVIDIA_API_KEY", "")
         if nvidia_key:
             providers.append(LLMProviderConfig(
                 name="nvidia-nemotron",
                 api_key=nvidia_key,
                 base_url="https://integrate.api.nvidia.com/v1",
-                model=os.getenv("NVIDIA_NEMOTRON_MODEL", "nvidia/llama-3.1-nemotron-70b-instruct"),
+                model=os.getenv("NVIDIA_NEMOTRON_MODEL", "nvidia/llama-3.3-nemotron-super-49b-v1"),
                 max_rpm=40,
                 max_rpd=1000,
                 max_tpm=100000,
                 priority=3,
             ))
             providers.append(LLMProviderConfig(
-                name="nvidia-qwen",
+                name="nvidia-ultra",
                 api_key=nvidia_key,
                 base_url="https://integrate.api.nvidia.com/v1",
-                model=os.getenv("NVIDIA_QWEN_MODEL", "qwen/qwen2.5-coder-32b-instruct"),
-                max_rpm=40,
-                max_rpd=1000,
-                max_tpm=100000,
-                priority=4,
+                model=os.getenv("NVIDIA_ULTRA_MODEL", "nvidia/nemotron-3-ultra-550b-a55b"),
+                max_rpm=20,
+                max_rpd=300,
+                max_tpm=200000,
+                priority=9,  # last resort in the normal cascade — it's slow
             ))
 
         # Priority 4: OpenRouter (free reasoning models). Model id is env-overridable

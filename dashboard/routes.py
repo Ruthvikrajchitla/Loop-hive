@@ -457,6 +457,36 @@ async def download_product(product_id: int):
         return RedirectResponse(url="/products")
 
 
+@router.get("/products/{product_id}/ebook.pdf")
+async def download_product_pdf(product_id: int):
+    """Render the product as a styled PDF ebook (with a Pexels cover) on demand."""
+    try:
+        from storage.database import async_session_factory, Product
+        from publishers.ebook_builder import build_ebook_pdf
+        async with async_session_factory() as session:
+            p = await session.get(Product, product_id)
+            if not p or not p.content:
+                return RedirectResponse(url=f"/products/{product_id}")
+            pdf = await build_ebook_pdf(
+                title=p.name,
+                content_md=p.content,
+                subtitle=f"A LoopHive {p.product_type}",
+                price=p.price,
+                cover_query=p.name,
+            )
+            if not pdf:
+                return RedirectResponse(url=f"/products/{product_id}")
+            slug = "".join(c if c.isalnum() else "-" for c in (p.name or "ebook")).strip("-").lower()
+            return Response(
+                content=pdf,
+                media_type="application/pdf",
+                headers={"Content-Disposition": f'attachment; filename="{slug}.pdf"'},
+            )
+    except Exception as e:
+        logger.error("product_pdf_failed", error=str(e))
+        return RedirectResponse(url=f"/products/{product_id}")
+
+
 @router.get("/content/{content_id}/download")
 async def download_article(content_id: int):
     """Download a generated article as a Markdown file for manual publishing."""
