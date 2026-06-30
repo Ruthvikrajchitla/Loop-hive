@@ -10,6 +10,22 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _resolve_db_url() -> str:
+    """Resolve DATABASE_URL, normalizing Postgres URLs to the async driver.
+
+    Render/Heroku hand out `postgres://...` connection strings; SQLAlchemy's async
+    engine needs `postgresql+asyncpg://...`. This lets you paste Render's Postgres
+    URL straight into the DATABASE_URL env var to survive deploys (SQLite on
+    Render's ephemeral disk is wiped on every restart). Defaults to local SQLite.
+    """
+    url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./loophive.db")
+    if url.startswith("postgres://"):
+        url = "postgresql+asyncpg://" + url[len("postgres://"):]
+    elif url.startswith("postgresql://") and "+asyncpg" not in url:
+        url = "postgresql+asyncpg://" + url[len("postgresql://"):]
+    return url
+
+
 @dataclass
 class LLMProviderConfig:
     """Configuration for a single LLM provider."""
@@ -31,11 +47,7 @@ class AppConfig:
 
     # Paths
     base_dir: Path = field(default_factory=lambda: Path(__file__).parent.parent)
-    db_url: str = field(
-        default_factory=lambda: os.getenv(
-            "DATABASE_URL", "sqlite+aiosqlite:///./loophive.db"
-        )
-    )
+    db_url: str = field(default_factory=_resolve_db_url)
 
     # Dashboard
     dashboard_host: str = field(
