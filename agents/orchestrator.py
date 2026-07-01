@@ -62,6 +62,16 @@ class OrchestratorAgent(AgentBase):
         # Longer budget for the code build/sandbox/self-heal loop.
         self.code_loop = MicroLoop(max_iterations=2, timeout_seconds=1200.0)
         self._cycle_count = 0
+        # Rotate the kinds of code products so we ship tools, packs, extensions
+        # and websites over time (override with CODE_PRODUCT_TYPES, | separated).
+        import os
+        self._code_types = [
+            t.strip() for t in os.getenv(
+                "CODE_PRODUCT_TYPES",
+                "developer tool|github starter kit|browser extension|static website|python package",
+            ).split("|") if t.strip()
+        ]
+        self._code_builds = 0
         self.micro_loop = MicroLoop(max_iterations=5)
         # Deep research can make many web calls — give it a longer budget.
         self.research_loop = MicroLoop(max_iterations=2, timeout_seconds=900.0)
@@ -303,11 +313,13 @@ class OrchestratorAgent(AgentBase):
         #     GitHub (the portfolio engine). Higher-value than static ebooks.
         self._cycle_count += 1
         if config.code_products_enabled and self._cycle_count % max(1, config.code_product_every) == 0:
-            logger.info("orchestrator_stage", stage="code_build", topic=topic)
+            build_type = self._code_types[self._code_builds % len(self._code_types)] if self._code_types else "developer tool"
+            self._code_builds += 1
+            logger.info("orchestrator_stage", stage="code_build", build_type=build_type, topic=topic)
             code_ctx = ContextWindow()
-            code_ctx.add("system", f"niche: {niche_name}\ntopic: {topic}")
+            code_ctx.add("system", f"niche: {niche_name}\ntopic: {topic}\nbuild_type: {build_type}")
             code_res = await self.code_loop.run(
-                self.coder, f"Build a developer tool for: {topic}", context=code_ctx
+                self.coder, f"Build a {build_type} for: {topic}", context=code_ctx
             )
             if isinstance(code_res.output, dict) and code_res.output.get("files"):
                 await self._ship_code_tool(code_res.output, niche_name, report)
@@ -470,6 +482,7 @@ class OrchestratorAgent(AgentBase):
         name = build.get("name", "loophive-tool")
         files = build.get("files", {})
         description = build.get("description", "")
+        product_type = (build.get("build_type", "code_tool") or "code_tool").replace(" ", "_")
         repo_url = None
         try:
             from publishers.github_publisher import publish_repo
@@ -497,7 +510,7 @@ class OrchestratorAgent(AgentBase):
                     session.add(Product(
                         niche_id=niche.id if niche else None,
                         name=name,
-                        product_type="code_tool",
+                        product_type=product_type,
                         price=0.0,
                         content=body,
                         description=description[:300],

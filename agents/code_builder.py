@@ -40,46 +40,74 @@ class CodeBuilderAgent(AgentBase):
             router=router,
         )
 
+    # Build type -> guidance + the files it must include.
+    BUILD_TYPES: dict[str, str] = {
+        "developer tool": "a small but genuinely useful Python CLI or micro-service tool. Include real "
+                          "logic, argument parsing, error handling, requirements.txt, and README.md.",
+        "python package": "a small, installable Python package/library. Include the package module(s), a "
+                          "usage example, a pyproject.toml, and README.md.",
+        "browser extension": "a Chrome Manifest V3 browser extension. REQUIRED files: manifest.json (valid "
+                            "MV3 with name, version, and \"manifest_version\": 3), the JavaScript "
+                            "(background.js and/or content.js and/or popup.js), popup.html if it has UI, and "
+                            "README.md. Real, working behavior — no stubs.",
+        "static website": "a small, polished static website. REQUIRED files: index.html, style.css, and "
+                          "script.js only if needed, plus README.md. Responsive, real copy (no lorem ipsum).",
+        "github starter kit": "a ready-to-use starter/boilerplate repo. Sensible folder structure, config "
+                             "files, ONE complete working example, and a README with setup + usage steps.",
+    }
+
     async def perceive(self, context: ContextWindow) -> dict:
         self.mark_running()
         niche = config.forced_niche or "AI developer tools"
         topic = ""
+        build_type = "developer tool"
         for entry in reversed(context.entries):
             for line in entry["content"].split("\n"):
                 low = line.lower().strip()
                 if low.startswith("topic:"):
                     topic = line.split(":", 1)[1].strip() or topic
+                elif low.startswith("build_type:"):
+                    build_type = line.split(":", 1)[1].strip() or build_type
                 elif "Goal:" in line and not topic:
                     topic = line.split("Goal:", 1)[1].strip()
-        return {"timestamp": time.time(), "niche": niche, "topic": topic or f"a useful tool for {niche}"}
+        return {
+            "timestamp": time.time(),
+            "niche": niche,
+            "topic": topic or f"a useful tool for {niche}",
+            "build_type": build_type,
+        }
 
     async def reason(self, state: dict, goal: str) -> dict:
-        """Spec Architect — design the project blueprint."""
+        """Spec Architect — design the project blueprint for the chosen build type."""
         topic = state["topic"]
+        build_type = state.get("build_type", "developer tool")
+        guidance = self.BUILD_TYPES.get(build_type.lower(), self.BUILD_TYPES["developer tool"])
         spec = await self.ask_llm_json(
-            f"Design a SMALL, genuinely useful open-source Python developer tool about: '{topic}'.\n"
-            f"It must be shippable in 3-6 files (include README.md and requirements.txt) and provide real, "
-            f"working functionality (a CLI, library, or FastAPI micro-service) — not a toy.\n\n"
+            f"Design {guidance}\n\n"
+            f"It must be about: '{topic}', shippable in 3-8 files, genuinely useful (not a toy), and "
+            f"include a README.md. Use file paths with correct extensions for the languages involved.\n\n"
             f"Output JSON: {{'project_name': str, 'description': str (one line), "
             f"'dependencies': [str], 'files': [{{'path': str, 'purpose': str}}]}}",
             temperature=0.4, max_tokens=2000,
         )
-        return {"state": state, "spec": spec}
+        return {"state": state, "spec": spec, "build_type": build_type}
 
     async def act(self, plan: dict) -> dict:
         """Engineer each file, sandbox-check, and self-heal."""
         spec = plan.get("spec", {})
+        build_type = plan.get("build_type", "developer tool")
         name = spec.get("project_name") or "loophive-tool"
         description = spec.get("description", "")
         deps = spec.get("dependencies", []) or []
         file_specs = spec.get("files", []) or []
 
-        # Ensure the essentials exist.
+        # Ensure a README always exists; requirements.txt only for Python builds.
         paths = {f.get("path") for f in file_specs}
-        if "requirements.txt" not in paths:
+        has_python = any(str(p).endswith(".py") for p in paths)
+        if has_python and deps and "requirements.txt" not in paths:
             file_specs.append({"path": "requirements.txt", "purpose": "Python dependencies"})
         if "README.md" not in paths:
-            file_specs.append({"path": "README.md", "purpose": "Usage documentation"})
+            file_specs.append({"path": "README.md", "purpose": "Setup and usage documentation"})
 
         files: dict[str, str] = {}
         for fs in file_specs:
@@ -99,18 +127,18 @@ class CodeBuilderAgent(AgentBase):
             )
             files[path] = self._strip_fence(code)
 
-        # Sandbox + self-heal loop.
+        # Sandbox + self-heal loop (any file type: py / json / js / html).
         ok, log = syntax_check(files, timeout=config.sandbox_timeout)
         rounds = 0
         while not ok and rounds < config.code_refine_rounds:
             rounds += 1
             logger.info("code_refine", round=rounds, name=name)
-            for path in [p for p in files if p.endswith(".py")]:
-                if f"] {path}:" not in log and path not in log:
+            for path in list(files):
+                if path not in log:
                     continue
                 fixed = await self.ask_llm(
-                    f"This file failed to compile. Fix it.\n\nFILE: {path}\n\nCODE:\n{files[path]}\n\n"
-                    f"COMPILER ERRORS:\n{log}\n\n"
+                    f"This file failed validation. Fix it.\n\nFILE: {path}\n\nCONTENT:\n{files[path]}\n\n"
+                    f"VALIDATION ERRORS:\n{log}\n\n"
                     f"Output ONLY the corrected raw file contents (no fences, no commentary).",
                     temperature=0.2, max_tokens=4096,
                 )
@@ -122,6 +150,7 @@ class CodeBuilderAgent(AgentBase):
             "description": description,
             "files": files,
             "dependencies": deps,
+            "build_type": build_type,
             "sandbox_ok": ok,
             "sandbox_log": log[:1000],
             "file_count": len(files),
@@ -137,6 +166,16 @@ class CodeBuilderAgent(AgentBase):
         if result.get("file_count", 0) < 2:
             return Verification(is_complete=False, should_retry=True,
                                 feedback="Too few files for a real tool.", reason="Insufficient files.")
+        bt = str(result.get("build_type", "")).lower()
+        paths = list(result.get("files", {}))
+        if "extension" in bt and not any(p.endswith("manifest.json") for p in paths):
+            return Verification(is_complete=False, should_retry=True,
+                                feedback="A browser extension must include a manifest.json.",
+                                reason="Missing manifest.json.")
+        if "website" in bt and not any(p.endswith((".html", ".htm")) for p in paths):
+            return Verification(is_complete=False, should_retry=True,
+                                feedback="A website must include an index.html.",
+                                reason="Missing HTML.")
         if not result.get("sandbox_ok"):
             return Verification(is_complete=False, should_retry=True,
                                 feedback=f"Code still has syntax errors:\n{result.get('sandbox_log', '')}",
