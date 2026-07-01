@@ -88,6 +88,14 @@ class AgentBase(ABC):
     # LLM helper methods — convenient wrappers for agents
     # -------------------------------------------------------------------
 
+    def _system(self) -> str:
+        """System prompt with the agent's team persona prepended (role-priming)."""
+        try:
+            from core.team import persona_preamble
+            return persona_preamble(self.name) + self.system_prompt
+        except Exception:
+            return self.system_prompt
+
     async def ask_llm(
         self,
         prompt: str,
@@ -101,7 +109,7 @@ class AgentBase(ABC):
 
         Returns the text response.
         """
-        messages = [{"role": "system", "content": self.system_prompt}]
+        messages = [{"role": "system", "content": self._system()}]
 
         if context:
             messages.extend(context)
@@ -194,7 +202,7 @@ class AgentBase(ABC):
             try:
                 result = await self.router.generate(
                     messages=[
-                        {"role": "system", "content": self.system_prompt},
+                        {"role": "system", "content": self._system()},
                         {"role": "user", "content": prompt},
                     ],
                     temperature=temperature,
@@ -226,7 +234,7 @@ class AgentBase(ABC):
         try:
             result = await self.router.generate(
                 messages=[
-                    {"role": "system", "content": self.system_prompt},
+                    {"role": "system", "content": self._system()},
                     {"role": "user", "content": fuse_prompt},
                 ],
                 temperature=0.4,

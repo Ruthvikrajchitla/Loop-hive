@@ -249,15 +249,32 @@ class OrchestratorAgent(AgentBase):
             report["product_name"] = prod_res.output.get("name")
             report["product_price"] = prod_res.output.get("price")
 
-            # 8. Marketing Campaign
+            # 8. Marketing Campaign — pass a compact product summary (not the whole book).
             logger.info("orchestrator_stage", stage="marketing_campaign")
+            out = prod_res.output
+            mkt_summary = {
+                "name": out.get("name"),
+                "price": out.get("price"),
+                "product_type": out.get("product_type"),
+                "sales_page_copy": out.get("sales_page_copy", ""),
+                "body": (out.get("body", "") or "")[:1500],
+            }
             mkt_ctx = ContextWindow()
-            import json
-            mkt_ctx.add("assistant", json.dumps(prod_res.output))
+            mkt_ctx.add("assistant", json.dumps(mkt_summary))
             mkt_res = await self.micro_loop.run(
                 self.marketing, "Generate a marketing plan for the product.", context=mkt_ctx
             )
             report["marketing_channels"] = len(mkt_res.output.get("channels", [])) if mkt_res.output else 0
+
+            # 8b. Distribute to Telegram (Bot API) if configured.
+            try:
+                from publishers.telegram_poster import post_to_telegram
+                post_text = self._build_telegram_post(out, mkt_res.output)
+                tg = await post_to_telegram(post_text)
+                report["telegram_status"] = tg.get("status")
+                logger.info("orchestrator_stage", stage="telegram_post", status=tg.get("status"))
+            except Exception as e:
+                logger.error("telegram_distribution_failed", error=str(e))
 
         # 9. Monthly evaluation
         logger.info("orchestrator_stage", stage="monthly_evaluation")
@@ -389,6 +406,25 @@ class OrchestratorAgent(AgentBase):
 
         self.mark_success(report)
         return report
+
+    @staticmethod
+    def _build_telegram_post(product: dict, marketing: dict | None) -> str:
+        """Compose a clean, transparent channel announcement from the product + marketing copy."""
+        name = product.get("name", "New AI resource")
+        price = product.get("price")
+        hook = ""
+        if isinstance(marketing, dict):
+            channels = marketing.get("channels", []) or []
+            for ch in channels:
+                if str(ch.get("name", "")).lower() in ("telegram", "x", "twitter"):
+                    hook = ch.get("copy", "")
+                    break
+            if not hook and channels:
+                hook = channels[0].get("copy", "")
+        if not hook:
+            hook = (product.get("sales_page_copy", "") or "")[:400]
+        price_str = f" — ${price:.2f}" if isinstance(price, (int, float)) else ""
+        return f"📘 {name}{price_str}\n\n{hook.strip()}\n\n🤖 Built autonomously by LoopHive"
 
     async def verify(self, result: Any, goal: str) -> Verification:
         """Verify the orchestration pipeline ran successfully and logged outputs."""
