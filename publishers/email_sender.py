@@ -25,8 +25,8 @@ def _creds() -> dict | None:
     return {"host": host, "port": int(os.getenv("SMTP_PORT", "587")), "user": user, "pw": pw}
 
 
-async def send_email(to: str, subject: str, body: str) -> dict:
-    """Send a plain-text email. Returns {status}. Never raises."""
+async def send_email(to: str, subject: str, body: str, in_reply_to: str | None = None) -> dict:
+    """Send a plain-text email (optionally threaded). Returns {status}. Never raises."""
     creds = _creds()
     if not creds:
         return {"status": "skipped", "reason": "smtp_not_configured"}
@@ -40,6 +40,9 @@ async def send_email(to: str, subject: str, body: str) -> dict:
         msg["Subject"] = subject
         msg["From"] = creds["user"]
         msg["To"] = to
+        if in_reply_to:
+            msg["In-Reply-To"] = in_reply_to
+            msg["References"] = in_reply_to
         with smtplib.SMTP(creds["host"], creds["port"], timeout=30) as s:
             s.starttls()
             s.login(creds["user"], creds["pw"])

@@ -154,6 +154,19 @@ class AppConfig:
         default_factory=lambda: int(os.getenv("OUTREACH_PER_DAY", "1"))
     )
 
+    # Two-way email: read the inbox, understand intent, act, and reply. Reading is
+    # gated by EMAIL_ENABLED; auto-sending replies also needs EMAIL_AUTO_REPLY + SMTP.
+    # STOP opt-outs are always honored regardless of these flags.
+    email_enabled: bool = field(
+        default_factory=lambda: os.getenv("EMAIL_ENABLED", "false").lower() in ("1", "true", "yes")
+    )
+    email_auto_reply: bool = field(
+        default_factory=lambda: os.getenv("EMAIL_AUTO_REPLY", "false").lower() in ("1", "true", "yes")
+    )
+    email_max_per_run: int = field(
+        default_factory=lambda: int(os.getenv("EMAIL_MAX_PER_RUN", "10"))
+    )
+
     # Ebook rendering & length (long-form products are generated chapter-by-chapter)
     ebook_pdf_enabled: bool = field(
         default_factory=lambda: os.getenv("EBOOK_PDF_ENABLED", "true").lower() in ("1", "true", "yes")

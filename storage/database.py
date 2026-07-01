@@ -194,6 +194,31 @@ class Outreach(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
+class InboxMessage(Base):
+    """An incoming email the agent read, understood, and acted on."""
+    __tablename__ = "inbox_messages"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    sender = Column(String(300), default="")
+    subject = Column(String(500), default="")
+    body = Column(Text, default="")
+    intent = Column(String(50), default="other")   # opt_out, interested, question, build_task, modification, other
+    action_summary = Column(Text, nullable=True)    # what the agent did about it
+    reply_draft = Column(Text, nullable=True)
+    status = Column(String(50), default="drafted")  # drafted, replied, suppressed, actioned, error
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class Suppression(Base):
+    """Emails that opted out (Reply STOP) — never contact again."""
+    __tablename__ = "suppressions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    email = Column(String(300), nullable=False)
+    reason = Column(String(200), default="opt_out")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
 # ---------------------------------------------------------------------------
 # Database engine and session
 # ---------------------------------------------------------------------------

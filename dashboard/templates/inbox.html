@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}Inbox | LoopHive{% endblock %}
+{% block page_title %}Inbox — Sol (Email Manager){% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h3>Incoming email — understood & handled</h3>
+        <span class="badge gray">reads · classifies · builds · replies</span>
+    </div>
+    {% for it in items %}
+    <div class="rule-item">
+        <div class="rule-header">
+            <span class="badge {% if it.status == 'replied' %}green{% elif it.status == 'suppressed' %}red{% elif it.status == 'actioned' %}blue{% else %}yellow{% endif %}">{{ it.status }}</span>
+            <span class="badge purple">{{ it.intent }}</span>
+            <span class="badge gray">{{ it.sender }}</span>
+        </div>
+        <h4>{{ it.subject }}</h4>
+        {% if it.summary %}<p class="lead-text">{{ it.summary }}</p>{% endif %}
+        {% if it.reply %}
+        <details><summary class="btn-link">View reply draft</summary>
+            <pre style="white-space:pre-wrap;margin-top:10px;font-size:0.85rem;">{{ it.reply }}</pre>
+        </details>
+        {% endif %}
+    </div>
+    {% else %}
+    <p class="empty-state">No email processed yet. Enable with EMAIL_ENABLED=true + IMAP creds.
+    Replies are drafted here for review; auto-send needs EMAIL_AUTO_REPLY=true + SMTP.
+    STOP opt-outs are always honored.</p>
+    {% endfor %}
+</div>
+{% endblock %}

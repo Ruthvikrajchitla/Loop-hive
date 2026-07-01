@@ -66,6 +66,8 @@ SIDE_AGENTS: list[dict] = [
      "description": "Builds, sandbox-tests and ships real developer tools to GitHub."},
     {"name": "outreach_agent", "icon": "📨", "stage": "Outreach",
      "description": "Finds one public request per day and drafts transparent outreach."},
+    {"name": "email_agent", "icon": "📥", "stage": "Inbox",
+     "description": "Reads email, understands requests, builds/adjusts deliverables, and replies."},
 ]
 AGENT_META_BY_NAME = {a["name"]: a for a in AGENT_META + SIDE_AGENTS}
 COORDINATOR_META = {"name": "orchestrator", "icon": "🧠", "stage": "Coordinating the pipeline",
@@ -573,6 +575,32 @@ async def get_outreach(request: Request):
         logger.error("query_outreach_failed", error=str(e))
     return templates.TemplateResponse(
         request=request, name="outreach.html", context={"items": items}
+    )
+
+
+@router.get("/inbox")
+async def get_inbox(request: Request):
+    items = []
+    try:
+        from storage.database import async_session_factory, InboxMessage
+        from sqlalchemy import select
+        async with async_session_factory() as session:
+            rows = (await session.execute(
+                select(InboxMessage).order_by(InboxMessage.created_at.desc()).limit(50)
+            )).scalars().all()
+            for r in rows:
+                items.append({
+                    "sender": r.sender,
+                    "subject": r.subject,
+                    "intent": r.intent,
+                    "summary": r.action_summary,
+                    "reply": r.reply_draft,
+                    "status": r.status,
+                })
+    except Exception as e:
+        logger.error("query_inbox_failed", error=str(e))
+    return templates.TemplateResponse(
+        request=request, name="inbox.html", context={"items": items}
     )
 
 

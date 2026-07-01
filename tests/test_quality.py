@@ -79,3 +79,11 @@ async def test_email_skips_without_smtp(monkeypatch):
     monkeypatch.delenv("SMTP_PASSWORD", raising=False)
     from publishers.email_sender import send_email
     assert (await send_email("a@b.com", "s", "b"))["status"] == "skipped"
+
+
+@pytest.mark.asyncio
+async def test_inbox_read_skips_without_imap(monkeypatch):
+    for k in ("IMAP_HOST", "IMAP_USER", "IMAP_PASSWORD", "SMTP_USER", "SMTP_PASSWORD"):
+        monkeypatch.delenv(k, raising=False)
+    from publishers.email_reader import fetch_unread
+    assert await fetch_unread() == []

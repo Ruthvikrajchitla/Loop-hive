@@ -161,6 +161,19 @@ async def _maybe_run_outreach(niche_name: str) -> None:
     print(f"  [Outreach] {status} (dry_run={config.outreach_dry_run})")
 
 
+async def _maybe_process_inbox() -> None:
+    """Read the inbox, understand requests, act, and draft/send replies."""
+    if not config.email_enabled:
+        return
+    from agents.email_agent import EmailAgent
+    from core.loop_engine import ContextWindow
+    res = await MicroLoop(max_iterations=1, timeout_seconds=900).run(
+        EmailAgent(), "Process the inbox", context=ContextWindow()
+    )
+    if isinstance(res.output, dict) and res.output.get("processed"):
+        print(f"  [Email] {res.output}")
+
+
 async def _apply_macro_decision(niche_name: str, decision: MacroDecision) -> None:
     """Persist the monthly verdict (pivot/kill flips the niche status)."""
     if decision == MacroDecision.CONTINUE:
@@ -272,6 +285,9 @@ async def run_swarm(continuous: bool = True, interval: float | None = None) -> N
             print(f"  [Macro] 30-day verdict for '{niche_name}': {evaluation.decision.value.upper()}")
             await _apply_macro_decision(niche_name, evaluation.decision)
             last_macro = now
+
+        # --- Read + act on the inbox (understand requests, reply) ---
+        await _maybe_process_inbox()
 
         # --- Daily outreach (capped, guarded, transparent) ---
         await _maybe_run_outreach(niche_name)
