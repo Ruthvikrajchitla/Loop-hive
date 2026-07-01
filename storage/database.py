@@ -194,6 +194,33 @@ class Outreach(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
+class Artifact(Base):
+    """Any concrete piece of work an agent produced — so it's fully viewable."""
+    __tablename__ = "artifacts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    agent_name = Column(String(100), default="")
+    kind = Column(String(60), default="")           # research_brief, telegram_post, marketing_copy, ...
+    title = Column(String(500), default="")
+    content = Column(Text, default="")
+    url = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class Notification(Base):
+    """An escalation to the boss (human owner)."""
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    level = Column(String(20), default="info")      # info, critical
+    title = Column(String(300), default="")
+    body = Column(Text, default="")
+    source = Column(String(100), default="")        # which agent/stage raised it
+    status = Column(String(30), default="unread")   # unread, read
+    emailed = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
 class InboxMessage(Base):
     """An incoming email the agent read, understood, and acted on."""
     __tablename__ = "inbox_messages"

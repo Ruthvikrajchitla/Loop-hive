@@ -22,6 +22,7 @@ from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 import structlog
 
+from core.config import config
 from core.llm_router import llm_router
 from revenue.earnings_report import EarningsReport
 
@@ -139,6 +140,8 @@ async def _live_state() -> dict:
         "stages": [],
         "timeline": [],
         "today": {"runs": 0, "tokens": 0, "articles": 0, "products": 0, "campaigns": 0, "successes": 0},
+        "boss": config.boss_name,
+        "unread_notifications": 0,
         "generated_at": now.isoformat(),
     }
 
@@ -222,6 +225,12 @@ async def _live_state() -> dict:
                     st = "pending"
                 state["stages"].append({"name": name, "icon": meta["icon"],
                                         "stage": meta["stage"], "state": st})
+
+            # Boss escalations (unread)
+            from storage.database import Notification
+            state["unread_notifications"] = (await session.execute(
+                select(func.count(Notification.id)).where(Notification.status == "unread")
+            )).scalar() or 0
 
             # Today KPIs
             today_runs = sum(v["runs"] for v in agg.values())
@@ -310,6 +319,89 @@ async def get_agents_live(request: Request):
     return templates.TemplateResponse(
         request=request, name="_agents_live.html",
         context={"live": state, "llm_usage": llm_usage},
+    )
+
+
+@router.get("/agents/{agent_name}")
+async def get_agent_detail(request: Request, agent_name: str):
+    """Everything one agent has done — runs + full artifacts."""
+    meta = AGENT_META_BY_NAME.get(agent_name) or COORDINATOR_META
+    runs, artifacts = [], []
+    try:
+        from storage.database import async_session_factory, AgentRun, Artifact
+        from sqlalchemy import select
+        async with async_session_factory() as session:
+            rrows = (await session.execute(
+                select(AgentRun).where(AgentRun.agent_name == agent_name)
+                .order_by(AgentRun.id.desc()).limit(25)
+            )).scalars().all()
+            for r in rrows:
+                runs.append({
+                    "task": r.task, "status": r.status, "tokens": r.tokens_used or 0,
+                    "duration": round(r.duration_seconds or 0, 1), "ago": _ago(r.completed_at or r.started_at),
+                    "summary": r.result_summary, "error": r.error_message,
+                })
+            arows = (await session.execute(
+                select(Artifact).where(Artifact.agent_name == agent_name)
+                .order_by(Artifact.id.desc()).limit(25)
+            )).scalars().all()
+            for a in arows:
+                artifacts.append({"kind": a.kind, "title": a.title, "content": a.content,
+                                  "url": a.url, "ago": _ago(a.created_at)})
+    except Exception as e:
+        logger.error("agent_detail_failed", error=str(e))
+    return templates.TemplateResponse(
+        request=request, name="agent_detail.html",
+        context={"agent": {"name": agent_name, **meta}, "runs": runs, "artifacts": artifacts},
+    )
+
+
+@router.get("/activity")
+async def get_activity(request: Request):
+    """Combined feed of every artifact the whole team produced."""
+    items = []
+    try:
+        from storage.database import async_session_factory, Artifact
+        from sqlalchemy import select
+        async with async_session_factory() as session:
+            rows = (await session.execute(
+                select(Artifact).order_by(Artifact.id.desc()).limit(100)
+            )).scalars().all()
+            for a in rows:
+                meta = AGENT_META_BY_NAME.get(a.agent_name, COORDINATOR_META)
+                items.append({"agent": a.agent_name, "icon": meta.get("icon", "🤖"),
+                              "kind": a.kind, "title": a.title, "content": a.content,
+                              "url": a.url, "ago": _ago(a.created_at)})
+    except Exception as e:
+        logger.error("activity_failed", error=str(e))
+    return templates.TemplateResponse(
+        request=request, name="activity.html", context={"items": items}
+    )
+
+
+@router.get("/notifications")
+async def get_notifications(request: Request):
+    """Boss inbox — escalations. Viewing marks them read."""
+    items = []
+    try:
+        from storage.database import async_session_factory, Notification
+        from sqlalchemy import select, update
+        async with async_session_factory() as session:
+            rows = (await session.execute(
+                select(Notification).order_by(Notification.id.desc()).limit(100)
+            )).scalars().all()
+            for n in rows:
+                items.append({"level": n.level, "title": n.title, "body": n.body,
+                              "source": n.source, "status": n.status, "emailed": n.emailed,
+                              "ago": _ago(n.created_at)})
+            await session.execute(update(Notification).where(
+                Notification.status == "unread").values(status="read"))
+            await session.commit()
+    except Exception as e:
+        logger.error("notifications_failed", error=str(e))
+    return templates.TemplateResponse(
+        request=request, name="notifications.html",
+        context={"items": items, "boss": config.boss_name},
     )
 
 

@@ -143,10 +143,20 @@ class EmailAgent(AgentBase):
             CodeBuilderAgent(router=self.router), f"Build a {build_type} for: {task}", context=ctx
         )
         if not isinstance(res.output, dict) or not res.output.get("files"):
+            try:
+                from core.notify import escalate
+                await escalate(
+                    "Email task I couldn't complete",
+                    f"A sender asked for: {task}\n(build type: {build_type}). I couldn't produce it "
+                    f"automatically — it may need your input.",
+                    level="critical", source="email_agent",
+                )
+            except Exception:
+                pass
             return (
-                "Thanks for the request — I've started on it and will follow up shortly. "
+                "Thanks for the request — I've started on it and my team will follow up shortly. "
                 "(I'm an autonomous AI agent building this for you.)",
-                "Build attempted but incomplete.",
+                "Build attempted but incomplete; escalated to the boss.",
             )
         build = res.output
         repo_url = None

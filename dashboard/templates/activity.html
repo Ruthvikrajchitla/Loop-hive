@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Activity | LoopHive{% endblock %}
+{% block page_title %}Team Activity — everything produced{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h3>All artifacts</h3>
+        <span class="badge gray">research · posts · marketing · builds</span>
+    </div>
+    {% for it in items %}
+    <div class="rule-item">
+        <div class="rule-header">
+            <span class="badge blue">{{ it.icon }} {{ it.agent }}</span>
+            <span class="badge purple">{{ it.kind }}</span>
+            <span class="time-meta">{{ it.ago }}</span>
+            {% if it.url %}<a href="{{ it.url }}" target="_blank" class="btn-link">open ↗</a>{% endif %}
+        </div>
+        <h4>{{ it.title }}</h4>
+        <details><summary class="btn-link">View full content</summary>
+            <pre style="white-space:pre-wrap;margin-top:10px;font-size:0.85rem;max-height:420px;overflow:auto;">{{ it.content }}</pre>
+        </details>
+    </div>
+    {% else %}
+    <p class="empty-state">No activity yet. Once the swarm runs, every research brief, post, and build appears here.</p>
+    {% endfor %}
+</div>
+{% endblock %}

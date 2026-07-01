@@ -189,6 +189,10 @@ class AppConfig:
         default_factory=lambda: int(os.getenv("MAX_WEEKLY_PRODUCTS", "1"))
     )
 
+    # The boss (human owner) the agents report to and escalate to.
+    boss_name: str = field(default_factory=lambda: os.getenv("BOSS_NAME", "Boss"))
+    boss_email: str = field(default_factory=lambda: os.getenv("BOSS_EMAIL", ""))
+
     # Logging
     log_level: str = field(
         default_factory=lambda: os.getenv("LOG_LEVEL", "INFO")

@@ -284,6 +284,14 @@ async def run_swarm(continuous: bool = True, interval: float | None = None) -> N
             evaluation = await macro.run(niche_name, await _aggregate_kpis())
             print(f"  [Macro] 30-day verdict for '{niche_name}': {evaluation.decision.value.upper()}")
             await _apply_macro_decision(niche_name, evaluation.decision)
+            if evaluation.decision in (MacroDecision.KILL, MacroDecision.PIVOT):
+                from core.notify import escalate
+                await escalate(
+                    f"Niche decision: {evaluation.decision.value.upper()} — '{niche_name}'",
+                    f"The monthly evaluation decided to {evaluation.decision.value.upper()} the niche "
+                    f"'{niche_name}'.\n\n{evaluation.reasoning}",
+                    level="critical", source="monthly_evaluator",
+                )
             last_macro = now
 
         # --- Read + act on the inbox (understand requests, reply) ---

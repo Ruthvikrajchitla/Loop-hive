@@ -714,7 +714,19 @@ h1, h2, h3, h4, h5, h6 {
 .status-chip.success { background: rgba(52,211,153,0.12); color: var(--accent-green); }
 .status-chip.failed, .status-chip.aborted, .status-chip.max_iterations { background: rgba(248,113,113,0.15); color: var(--accent-red); }
 
-/* Live agent grid (overview) */
+/* Boss badge in the top bar */
+.boss-badge {
+    display: inline-flex; align-items: center; gap: 8px; text-decoration: none;
+    background: rgba(255,255,255,0.05); border: 1px solid var(--card-border);
+    color: var(--text-primary); padding: 6px 14px; border-radius: 20px; font-size: 0.85rem;
+}
+.boss-badge:hover { background: rgba(255,255,255,0.1); }
+.boss-badge.alert { border-color: rgba(248,113,113,0.5); color: var(--accent-red); }
+.boss-count { background: var(--accent-red); color: #fff; border-radius: 10px; padding: 0 7px; font-size: 0.75rem; font-weight: 700; }
+
+/* Live agent grid (overview) — cards are links */
+.live-agent { text-decoration: none; color: inherit; display: block; }
+.live-agent:hover { border-color: rgba(96,165,250,0.5); }
 .live-agent-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
 @media (max-width: 1400px) { .live-agent-grid { grid-template-columns: 1fr; } }
 .live-agent {

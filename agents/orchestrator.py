@@ -148,6 +148,9 @@ class OrchestratorAgent(AgentBase):
                 research_report = research_res.output.get("report", "")
                 report["research_sources"] = research_res.output.get("source_count", 0)
                 report["research_chars"] = len(research_report)
+                if research_report:
+                    from core.artifacts import log_artifact
+                    await log_artifact("research_agent", "research_brief", topic, research_report)
 
         # 3. Create content — write the specific topic, grounded in the research brief.
         logger.info("orchestrator_stage", stage="content_creation", topic=topic)
@@ -299,12 +302,20 @@ class OrchestratorAgent(AgentBase):
             )
             report["marketing_channels"] = len(mkt_res.output.get("channels", [])) if mkt_res.output else 0
 
+            from core.artifacts import log_artifact
+            if mkt_res.output:
+                copy_dump = "\n\n".join(
+                    f"### {c.get('name','?')}\n{c.get('copy','')}" for c in mkt_res.output.get("channels", [])
+                )
+                await log_artifact("marketing_agent", "marketing_copy", out.get("name", "Product"), copy_dump)
+
             # 8b. Distribute to Telegram (Bot API) if configured.
             try:
                 from publishers.telegram_poster import post_to_telegram
                 post_text = self._build_telegram_post(out, mkt_res.output)
                 tg = await post_to_telegram(post_text)
                 report["telegram_status"] = tg.get("status")
+                await log_artifact("marketing_agent", "telegram_post", out.get("name", "Product"), post_text)
                 logger.info("orchestrator_stage", stage="telegram_post", status=tg.get("status"))
             except Exception as e:
                 logger.error("telegram_distribution_failed", error=str(e))
@@ -473,6 +484,20 @@ class OrchestratorAgent(AgentBase):
                     report["site_articles"] = len(articles)
         except Exception as e:
             logger.error("static_site_build_failed", error=str(e))
+
+        # Escalate to the boss if the cycle produced nothing usable.
+        if not report.get("article_written") and not report.get("product_created"):
+            try:
+                from core.notify import escalate
+                await escalate(
+                    "Cycle produced no content or product",
+                    f"The pipeline for niche '{niche_name}' (topic: {topic}) finished without a usable "
+                    f"article or product. This usually means the LLMs were rate-limited/exhausted. "
+                    f"Report: {report}",
+                    level="critical", source="orchestrator",
+                )
+            except Exception as e:
+                logger.error("escalation_failed", error=str(e))
 
         self.mark_success(report)
         return report

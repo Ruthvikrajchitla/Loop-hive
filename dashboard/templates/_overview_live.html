@@ -61,7 +61,7 @@
         <div class="live-agent-grid">
             {% for a in live.agents %}
             {% if a.name != 'orchestrator' %}
-            <div class="live-agent {{ a.status }}">
+            <a href="/agents/{{ a.name }}" class="live-agent {{ a.status }}">
                 <div class="la-top">
                     <span class="la-icon">{{ a.icon }}</span>
                     <span class="la-name">{{ a.name }}</span>
@@ -81,7 +81,7 @@
                     <span>{{ "{:,}".format(a.tokens_today) }} tok</span>
                     <span>{{ a.last_run_ago }}</span>
                 </div>
-            </div>
+            </a>
             {% endif %}
             {% endfor %}
         </div>

@@ -27,7 +27,7 @@
         {% if a.name != 'orchestrator' %}
         <div class="agent-card {{ a.status }}">
             <div class="agent-header">
-                <h4>{{ a.icon }} {{ a.name }}</h4>
+                <h4><a href="/agents/{{ a.name }}" class="btn-link">{{ a.icon }} {{ a.name }}</a></h4>
                 <span class="status-chip {{ a.status }}">
                     {% if a.status == 'running' %}<span class="pulse-dot blue"></span>{% endif %}{{ a.status }}
                 </span>

@@ -37,6 +37,9 @@
                 <a href="/agents" class="nav-item {% if request.url.path == '/agents' %}active{% endif %}">
                     <span class="nav-icon">🤖</span> Agents
                 </a>
+                <a href="/activity" class="nav-item {% if request.url.path == '/activity' %}active{% endif %}">
+                    <span class="nav-icon">📜</span> Activity
+                </a>
                 <a href="/compliance" class="nav-item {% if request.url.path == '/compliance' %}active{% endif %}">
                     <span class="nav-icon">⚖️</span> Compliance
                 </a>
@@ -45,6 +48,9 @@
                 </a>
                 <a href="/inbox" class="nav-item {% if request.url.path == '/inbox' %}active{% endif %}">
                     <span class="nav-icon">📥</span> Inbox
+                </a>
+                <a href="/notifications" class="nav-item {% if request.url.path == '/notifications' %}active{% endif %}">
+                    <span class="nav-icon">🔔</span> Boss Inbox
                 </a>
                 <a href="/onboarding" class="nav-item {% if request.url.path == '/onboarding' %}active{% endif %}">
                     <span class="nav-icon">🎓</span> Onboarding

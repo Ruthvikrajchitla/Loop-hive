@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}{{ agent.name }} | LoopHive{% endblock %}
+{% block page_title %}{{ agent.icon }} {{ agent.name }}{% endblock %}
+
+{% block content %}
+<div class="detail-toolbar">
+    <a href="/agents" class="btn-link">← All agents</a>
+</div>
+<p class="detail-hint">{{ agent.description }}</p>
+
+<div class="detail-grid">
+    <div class="card">
+        <div class="card-header"><h3>Recent runs</h3></div>
+        <div class="timeline">
+            {% for r in runs %}
+            <div class="tl-item">
+                <div class="tl-body">
+                    <div class="tl-line">
+                        <span class="status-chip sm {{ r.status }}">{{ r.status }}</span>
+                        <span class="tl-meta">{{ r.ago }} · {{ r.duration }}s · {{ "{:,}".format(r.tokens) }} tok</span>
+                    </div>
+                    <div class="tl-task">{{ r.task }}</div>
+                    {% if r.error %}<div class="tl-meta" style="color:var(--accent-red)">{{ r.error }}</div>{% endif %}
+                </div>
+            </div>
+            {% else %}<p class="empty-state">No runs yet.</p>{% endfor %}
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h3>Work produced ({{ artifacts|length }})</h3></div>
+        {% for a in artifacts %}
+        <div class="rule-item">
+            <div class="rule-header">
+                <span class="badge purple">{{ a.kind }}</span>
+                <span class="time-meta">{{ a.ago }}</span>
+                {% if a.url %}<a href="{{ a.url }}" target="_blank" class="btn-link">open ↗</a>{% endif %}
+            </div>
+            <h4>{{ a.title }}</h4>
+            <details><summary class="btn-link">View full content</summary>
+                <pre style="white-space:pre-wrap;margin-top:10px;font-size:0.85rem;max-height:400px;overflow:auto;">{{ a.content }}</pre>
+            </details>
+        </div>
+        {% else %}<p class="empty-state">No artifacts yet.</p>{% endfor %}
+    </div>
+</div>
+{% endblock %}

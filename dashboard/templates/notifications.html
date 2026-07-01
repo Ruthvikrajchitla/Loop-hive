@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Boss Inbox | LoopHive{% endblock %}
+{% block page_title %}👤 {{ boss }} — Escalations{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h3>Things the team escalated to you</h3>
+        <span class="badge gray">critical decisions & blockers</span>
+    </div>
+    {% for it in items %}
+    <div class="rule-item">
+        <div class="rule-header">
+            <span class="badge {% if it.level == 'critical' %}red{% else %}gray{% endif %}">{{ it.level }}</span>
+            <span class="badge purple">{{ it.source }}</span>
+            {% if it.emailed %}<span class="badge green">emailed</span>{% endif %}
+            <span class="time-meta">{{ it.ago }}</span>
+        </div>
+        <h4>{{ it.title }}</h4>
+        <pre style="white-space:pre-wrap;margin-top:8px;font-size:0.85rem;">{{ it.body }}</pre>
+    </div>
+    {% else %}
+    <p class="empty-state">Nothing needs your attention. The team escalates here (and emails you if BOSS_EMAIL is set)
+    when a niche is killed/pivoted, a cycle produces nothing, or someone requests something they can't build.</p>
+    {% endfor %}
+</div>
+{% endblock %}

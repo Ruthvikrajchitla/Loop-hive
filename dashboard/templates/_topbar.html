@@ -10,3 +10,6 @@
 </div>
 {% endif %}
 <div class="niche-badge">Niche: <strong>{{ live.active_niche }}</strong></div>
+<a href="/notifications" class="boss-badge{% if live.unread_notifications %} alert{% endif %}">
+    👤 {{ live.boss }}{% if live.unread_notifications %} <span class="boss-count">{{ live.unread_notifications }}</span>{% endif %}
+</a>
