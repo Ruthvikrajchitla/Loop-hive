@@ -16,6 +16,7 @@ import structlog
 from core.agent_base import AgentBase
 from core.config import config
 from core.loop_engine import ContextWindow, Verification
+from core.text_clean import strip_ai_artifacts, EDITORIAL_RULES
 
 logger = structlog.get_logger(__name__)
 
@@ -31,11 +32,10 @@ class ProductCreatorAgent(AgentBase):
             name="product_creator",
             description="Builds digital products (ebooks, templates) and compiles sales copy.",
             system_prompt=(
-                "You are an elite product developer, instructional designer, and copywriter. Your goal "
-                "is to create high-value, original educational products (Guides, Checklists, Cheat Sheets, "
-                "Prompt packs) that solve real problems. You structure products clearly, make them actionable, "
-                "and write compelling landing page sales copy that highlights benefits and features. "
-                "Always output JSON."
+                "You are a top-tier practitioner and instructional designer writing PREMIUM, production-ready "
+                "products that professionals pay for. You write as the primary domain expert — never citing "
+                "'sources' or leaving bracket artifacts. You are prescriptive and concrete: real steps, real "
+                "code/config, real tools, real trade-offs. You avoid filler, boilerplate, and beginner fluff."
             ),
             router=router,
         )
@@ -158,22 +158,27 @@ class ProductCreatorAgent(AgentBase):
                 f"CHAPTER: {sec_title}\n"
                 f"What this chapter must cover: {sec_obj}\n\n"
                 f"{research_block}"
+                f"{EDITORIAL_RULES}\n\n"
                 f"Already covered in earlier chapters (do NOT repeat): {', '.join(covered) or 'none yet'}.\n\n"
-                f"Write ~{target_words} words of detailed, practical, original content for THIS chapter only. "
-                f"Use Markdown: a '## {sec_title}' heading, '###' sub-headings, short paragraphs, bullet "
-                f"lists, numbered steps, and concrete real examples/tools. No JSON, no code fences around it, "
-                f"no placeholders. Do not write a conclusion unless this is the final chapter."
+                f"Write ~{target_words} words for THIS chapter only, starting with a '## {sec_title}' heading. "
+                f"Do not write a conclusion unless this is the final chapter. Output only the chapter Markdown."
             )
             try:
-                sec_text = self._strip_code_fence(await self.ask_llm(sec_prompt, temperature=0.6, max_tokens=4096))
+                sec_text = strip_ai_artifacts(self._strip_code_fence(
+                    await self.ask_llm(sec_prompt, temperature=0.6, max_tokens=4096)
+                ))
             except Exception as e:
                 self.logger.warning("section_generation_failed", chapter=sec_title, error=str(e)[:120])
                 continue
-            if sec_text:
-                if not sec_text.lstrip().startswith("#"):
-                    sec_text = f"## {sec_title}\n\n{sec_text}"
-                parts.append(sec_text)
-                covered.append(sec_title)
+            if not sec_text:
+                continue
+            # Final editorial pass with the premium model (e.g. Nemotron-Ultra-550B).
+            sec_text = await self._finalize_chapter(sec_text, sec_title, product_name, product_type)
+            if not sec_text.lstrip().startswith("#"):
+                sec_text = f"## {sec_title}\n\n{sec_text}"
+            parts.append(sec_text)
+            covered.append(sec_title)
+            self.logger.info("chapter_done", chapter=sec_title, index=i, total=len(sections))
 
         product_body = "\n\n".join(parts)
 
@@ -209,6 +214,41 @@ class ProductCreatorAgent(AgentBase):
         self.logger.info("product_built", name=product_name, words=word_count, chapters=len(parts))
         self.mark_success(result)
         return result
+
+    async def _finalize_chapter(self, chapter_md: str, sec_title: str, product_name: str, product_type: str) -> str:
+        """Elite editorial pass — the premium model produces the FINAL chapter draft."""
+        provider = config.finalize_provider
+        available = provider in {p.name for p in self.router.providers}
+        if not config.finalize_enabled or not available:
+            return chapter_md
+        prompt = (
+            f"You are the elite editor finalizing a chapter of the premium {product_type} '{product_name}'. "
+            f"Rewrite the chapter below to production quality a professional would happily pay for:\n"
+            f"- Remove EVERY AI footprint: bracket citations ([1], [2]) and any phrase referencing 'sources', "
+            f"'context', or 'the research'. Speak as the primary expert.\n"
+            f"- Deepen it — make each point prescriptive with the exact how and why and trade-offs. Add at "
+            f"least one real, correct code block/config or a clean comparison table where it adds value.\n"
+            f"- Fix all formatting; keep the '## {sec_title}' heading. No 'Proceed to Chapter' lines.\n"
+            f"- Output ONLY the finished chapter Markdown.\n\nCHAPTER:\n{chapter_md}"
+        )
+        try:
+            result = await self.router.generate(
+                messages=[
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.4,
+                max_tokens=4096,
+                task_type=self.name,
+                only_provider=provider,
+            )
+            self.state.total_tokens_used += result.get("tokens_used", 0)
+            finalized = strip_ai_artifacts(self._strip_code_fence(result.get("content") or ""))
+            if len(finalized) > 200:
+                return finalized
+        except Exception as e:
+            self.logger.warning("chapter_finalize_failed", chapter=sec_title, provider=provider, error=str(e)[:150])
+        return chapter_md
 
     @staticmethod
     def _strip_code_fence(text: str) -> str:

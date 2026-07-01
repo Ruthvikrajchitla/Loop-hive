@@ -14,6 +14,7 @@ import structlog
 
 from core.agent_base import AgentBase
 from core.loop_engine import ContextWindow, Verification
+from core.text_clean import strip_ai_artifacts, EDITORIAL_RULES
 
 logger = structlog.get_logger(__name__)
 
@@ -124,17 +125,13 @@ class ContentWriterAgent(AgentBase):
             f"You are writing a comprehensive, deep-dive article titled: '{title}'.\n"
             f"Here is the outline you must follow:\n{outline_str}\n"
             f"{research_block}\n"
-            f"Instructions:\n"
-            f"- Write in a clear, authoritative, and engaging tone.\n"
-            f"- Aim for depth and clarity. Use tables, bullet points, and clean typography.\n"
-            f"- Weave keywords ({', '.join(brief.get('keywords', []))}) naturally into the text.\n"
-            f"- Use the concrete facts, statistics and examples from the research above.\n"
-            f"- Do not add placeholders. All examples and advice must be real and concrete.\n\n"
+            f"{EDITORIAL_RULES}\n"
+            f"- Weave keywords ({', '.join(brief.get('keywords', []))}) naturally into the text.\n\n"
             f"Write the full article body in Markdown."
         )
 
         # Mixture-of-Agents: multiple models draft, an aggregator fuses the best.
-        draft = await self.ask_llm_fused(draft_prompt, temperature=0.7)
+        draft = strip_ai_artifacts(await self.ask_llm_fused(draft_prompt, temperature=0.7))
 
         # Pass 3: Self-Edit/Polish
         polish_prompt = (
@@ -148,12 +145,13 @@ class ContentWriterAgent(AgentBase):
         )
 
         polished_data = await self.ask_llm_json(polish_prompt, temperature=0.3)
-        
+
+        body = strip_ai_artifacts(polished_data.get("polished_body", draft))
         result = {
             "title": title,
             "meta_description": polished_data.get("meta_description", ""),
-            "word_count": polished_data.get("word_count", len(polished_data.get("polished_body", "").split())),
-            "body": polished_data.get("polished_body", draft),
+            "word_count": polished_data.get("word_count", len(body.split())),
+            "body": body,
         }
         
         self.mark_success(result)

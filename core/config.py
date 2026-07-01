@@ -118,6 +118,13 @@ class AppConfig:
     fusion_aggregator: str = field(  # provider name that fuses the drafts ("" = auto)
         default_factory=lambda: os.getenv("FUSION_AGGREGATOR", "nvidia-ultra")
     )
+    # Final editorial pass — the premium model that produces the FINAL product draft.
+    finalize_enabled: bool = field(
+        default_factory=lambda: os.getenv("FINALIZE_ENABLED", "true").lower() in ("1", "true", "yes")
+    )
+    finalize_provider: str = field(
+        default_factory=lambda: os.getenv("FINALIZE_PROVIDER", "nvidia-ultra")
+    )
 
     # Ebook rendering & length (long-form products are generated chapter-by-chapter)
     ebook_pdf_enabled: bool = field(
