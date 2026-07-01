@@ -541,6 +541,32 @@ async def get_compliance(request: Request):
     )
 
 
+@router.get("/outreach")
+async def get_outreach(request: Request):
+    items = []
+    try:
+        from storage.database import async_session_factory, Outreach
+        from sqlalchemy import select
+        async with async_session_factory() as session:
+            rows = (await session.execute(
+                select(Outreach).order_by(Outreach.created_at.desc()).limit(50)
+            )).scalars().all()
+            for r in rows:
+                items.append({
+                    "target": r.target,
+                    "url": r.target_url,
+                    "recipient": r.recipient_email or "—",
+                    "subject": r.subject,
+                    "body": r.body,
+                    "status": r.status,
+                })
+    except Exception as e:
+        logger.error("query_outreach_failed", error=str(e))
+    return templates.TemplateResponse(
+        request=request, name="outreach.html", context={"items": items}
+    )
+
+
 @router.get("/onboarding")
 async def get_onboarding(request: Request):
     steps = [

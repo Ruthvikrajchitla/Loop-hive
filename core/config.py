@@ -126,6 +126,34 @@ class AppConfig:
         default_factory=lambda: os.getenv("FINALIZE_PROVIDER", "nvidia-ultra")
     )
 
+    # Code products — the swarm builds real tools, tests them in a sandbox, and
+    # ships the working ones to a GitHub org (the portfolio engine).
+    code_products_enabled: bool = field(
+        default_factory=lambda: os.getenv("CODE_PRODUCTS_ENABLED", "true").lower() in ("1", "true", "yes")
+    )
+    code_product_every: int = field(  # build a code tool every N cycles
+        default_factory=lambda: int(os.getenv("CODE_PRODUCT_EVERY", "3"))
+    )
+    sandbox_timeout: int = field(
+        default_factory=lambda: int(os.getenv("SANDBOX_TIMEOUT", "60"))
+    )
+    code_refine_rounds: int = field(  # self-heal loops when the sandbox reports errors
+        default_factory=lambda: int(os.getenv("CODE_REFINE_ROUNDS", "2"))
+    )
+
+    # Outreach — ONE transparent, value-first message per day. Off + dry-run by
+    # default: it composes and stores drafts for review; it only actually sends
+    # when OUTREACH_ENABLED=true AND OUTREACH_DRY_RUN=false AND SMTP creds exist.
+    outreach_enabled: bool = field(
+        default_factory=lambda: os.getenv("OUTREACH_ENABLED", "false").lower() in ("1", "true", "yes")
+    )
+    outreach_dry_run: bool = field(
+        default_factory=lambda: os.getenv("OUTREACH_DRY_RUN", "true").lower() in ("1", "true", "yes")
+    )
+    outreach_per_day: int = field(
+        default_factory=lambda: int(os.getenv("OUTREACH_PER_DAY", "1"))
+    )
+
     # Ebook rendering & length (long-form products are generated chapter-by-chapter)
     ebook_pdf_enabled: bool = field(
         default_factory=lambda: os.getenv("EBOOK_PDF_ENABLED", "true").lower() in ("1", "true", "yes")

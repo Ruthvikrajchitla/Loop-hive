@@ -22,6 +22,8 @@ TEAM: dict[str, tuple[str, str]] = {
     "product_creator": ("Ivo", "Product Architect"),
     "marketing_agent": ("Remy", "Growth & Marketing Lead"),
     "monthly_evaluator": ("Kai", "Performance Analyst"),
+    "code_builder": ("Cody", "Senior Software Engineer"),
+    "outreach_agent": ("Bex", "Business Development"),
 }
 
 _ROSTER = "; ".join(f"{name} ({role})" for name, role in TEAM.values())

@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}Outreach | LoopHive{% endblock %}
+{% block page_title %}Business Development — Outreach{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h3>Outreach drafts & sends</h3>
+        <span class="badge gray">1 / day · transparent · opt-out</span>
+    </div>
+    {% for it in items %}
+    <div class="rule-item">
+        <div class="rule-header">
+            <span class="badge {% if it.status == 'sent' %}green{% elif it.status == 'draft' %}yellow{% else %}gray{% endif %}">{{ it.status }}</span>
+            <span class="badge purple">{{ it.recipient }}</span>
+            {% if it.url %}<a href="{{ it.url }}" target="_blank" class="btn-link">source ↗</a>{% endif %}
+        </div>
+        <h4>{{ it.subject }}</h4>
+        <p class="lead-text">{{ it.target }}</p>
+        <details><summary class="btn-link">View message</summary>
+            <pre style="white-space:pre-wrap;margin-top:10px;font-size:0.85rem;">{{ it.body }}</pre>
+        </details>
+    </div>
+    {% else %}
+    <p class="empty-state">No outreach yet. Enable with OUTREACH_ENABLED=true (drafts are saved here for review;
+    sending also needs OUTREACH_DRY_RUN=false + SMTP creds).</p>
+    {% endfor %}
+</div>
+{% endblock %}

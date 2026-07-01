@@ -180,6 +180,20 @@ class MarketingCampaign(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
+class Outreach(Base):
+    """One transparent, value-first outreach attempt (draft or sent)."""
+    __tablename__ = "outreach"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    target = Column(String(300), default="")        # who/what the opportunity is
+    target_url = Column(String(500), nullable=True)  # the public request/post
+    recipient_email = Column(String(300), nullable=True)
+    subject = Column(String(300), default="")
+    body = Column(Text, default="")
+    status = Column(String(50), default="draft")     # draft, sent, skipped, error
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
 # ---------------------------------------------------------------------------
 # Database engine and session
 # ---------------------------------------------------------------------------

@@ -26,6 +26,7 @@ from agents.compliance_agent import ComplianceAgent
 from agents.product_creator import ProductCreatorAgent
 from agents.marketing_agent import MarketingAgent
 from agents.monthly_evaluator import MonthlyEvaluatorAgent
+from agents.code_builder import CodeBuilderAgent
 
 logger = structlog.get_logger(__name__)
 
@@ -57,6 +58,10 @@ class OrchestratorAgent(AgentBase):
         self.creator = ProductCreatorAgent(router=self.router)
         self.marketing = MarketingAgent(router=self.router)
         self.evaluator = MonthlyEvaluatorAgent(router=self.router)
+        self.coder = CodeBuilderAgent(router=self.router)
+        # Longer budget for the code build/sandbox/self-heal loop.
+        self.code_loop = MicroLoop(max_iterations=2, timeout_seconds=1200.0)
+        self._cycle_count = 0
         self.micro_loop = MicroLoop(max_iterations=5)
         # Deep research can make many web calls — give it a longer budget.
         self.research_loop = MicroLoop(max_iterations=2, timeout_seconds=900.0)
@@ -276,6 +281,19 @@ class OrchestratorAgent(AgentBase):
             except Exception as e:
                 logger.error("telegram_distribution_failed", error=str(e))
 
+        # 8c. Code tool track — every N cycles, build a real tool and ship it to
+        #     GitHub (the portfolio engine). Higher-value than static ebooks.
+        self._cycle_count += 1
+        if config.code_products_enabled and self._cycle_count % max(1, config.code_product_every) == 0:
+            logger.info("orchestrator_stage", stage="code_build", topic=topic)
+            code_ctx = ContextWindow()
+            code_ctx.add("system", f"niche: {niche_name}\ntopic: {topic}")
+            code_res = await self.code_loop.run(
+                self.coder, f"Build a developer tool for: {topic}", context=code_ctx
+            )
+            if isinstance(code_res.output, dict) and code_res.output.get("files"):
+                await self._ship_code_tool(code_res.output, niche_name, report)
+
         # 9. Monthly evaluation
         logger.info("orchestrator_stage", stage="monthly_evaluation")
         eval_res = await self.micro_loop.run(self.evaluator, "Run 30-day evaluation.")
@@ -406,6 +424,50 @@ class OrchestratorAgent(AgentBase):
 
         self.mark_success(report)
         return report
+
+    async def _ship_code_tool(self, build: dict, niche_name: str, report: dict) -> None:
+        """Publish a built tool to GitHub and record it as a product."""
+        name = build.get("name", "loophive-tool")
+        files = build.get("files", {})
+        description = build.get("description", "")
+        repo_url = None
+        try:
+            from publishers.github_publisher import publish_repo
+            res = await publish_repo(name, files, description)
+            report["code_tool_status"] = res.get("status")
+            repo_url = res.get("url")
+            logger.info("orchestrator_stage", stage="code_publish", status=res.get("status"), url=repo_url)
+        except Exception as e:
+            logger.error("code_publish_failed", error=str(e))
+
+        # Persist as a product (a downloadable tool) for the dashboard.
+        try:
+            import datetime
+            from storage.database import async_session_factory, Product, Niche
+            from sqlalchemy import select
+            manifest = "\n".join(f"- `{p}`" for p in files)
+            body = f"# {name}\n\n{description}\n\n## Files\n{manifest}\n\n" + (
+                f"Repository: {repo_url}\n" if repo_url else "Saved locally (set GITHUB_TOKEN to publish).\n"
+            )
+            async with async_session_factory() as session:
+                async with session.begin():
+                    niche = (await session.execute(
+                        select(Niche).where(Niche.name == niche_name)
+                    )).scalar_one_or_none()
+                    session.add(Product(
+                        niche_id=niche.id if niche else None,
+                        name=name,
+                        product_type="code_tool",
+                        price=0.0,
+                        content=body,
+                        description=description[:300],
+                        status="published" if repo_url else "ready_local",
+                        platform="github" if repo_url else None,
+                        platform_url=repo_url,
+                    ))
+            report["code_tool_name"] = name
+        except Exception as e:
+            logger.error("code_tool_persist_failed", error=str(e))
 
     @staticmethod
     def _build_telegram_post(product: dict, marketing: dict | None) -> str:

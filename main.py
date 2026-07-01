@@ -128,6 +128,39 @@ async def _today_counts() -> tuple[int, int]:
     return articles, products
 
 
+async def _outreach_count_today() -> int:
+    """How many outreach attempts were logged today (UTC)."""
+    try:
+        import datetime
+        from storage.database import async_session_factory, Outreach
+        from sqlalchemy import select, func
+        now = datetime.datetime.utcnow()
+        today = datetime.datetime(now.year, now.month, now.day)
+        async with async_session_factory() as session:
+            return (await session.execute(
+                select(func.count(Outreach.id)).where(Outreach.created_at >= today)
+            )).scalar() or 0
+    except Exception:
+        return 0
+
+
+async def _maybe_run_outreach(niche_name: str) -> None:
+    """Run the capped, guarded, one-per-day outreach agent."""
+    if not config.outreach_enabled:
+        return
+    if await _outreach_count_today() >= config.outreach_per_day:
+        return
+    from agents.outreach_agent import OutreachAgent
+    from core.loop_engine import ContextWindow
+    ctx = ContextWindow()
+    ctx.add("system", f"niche: {niche_name}")
+    res = await MicroLoop(max_iterations=1, timeout_seconds=300).run(
+        OutreachAgent(), f"Find one person to help in {niche_name}", context=ctx
+    )
+    status = res.output.get("status") if isinstance(res.output, dict) else "?"
+    print(f"  [Outreach] {status} (dry_run={config.outreach_dry_run})")
+
+
 async def _apply_macro_decision(niche_name: str, decision: MacroDecision) -> None:
     """Persist the monthly verdict (pivot/kill flips the niche status)."""
     if decision == MacroDecision.CONTINUE:
@@ -239,6 +272,9 @@ async def run_swarm(continuous: bool = True, interval: float | None = None) -> N
             print(f"  [Macro] 30-day verdict for '{niche_name}': {evaluation.decision.value.upper()}")
             await _apply_macro_decision(niche_name, evaluation.decision)
             last_macro = now
+
+        # --- Daily outreach (capped, guarded, transparent) ---
+        await _maybe_run_outreach(niche_name)
 
         if not continuous:
             break
