@@ -254,6 +254,24 @@ class OrchestratorAgent(AgentBase):
             report["product_name"] = prod_res.output.get("name")
             report["product_price"] = prod_res.output.get("price")
 
+            # 7b. Distribute to the storefront (Gumroad; simulation URL if no token).
+            try:
+                import os
+                from publishers.product_distributor import ProductDistributor
+                dist = ProductDistributor(gumroad_token=os.getenv("GUMROAD_ACCESS_TOKEN", ""))
+                dres = await dist.distribute(
+                    out.get("name", "AI product"),
+                    (out.get("sales_page_copy", "") or "")[:500],
+                    float(out.get("price", 9.0)),
+                    out.get("body", ""),
+                )
+                out["platform"] = dres.get("platform")
+                out["platform_url"] = dres.get("url")
+                out["dist_status"] = dres.get("status")
+                report["product_url"] = dres.get("url")
+            except Exception as e:
+                logger.error("product_distribution_failed", error=str(e))
+
             # 8. Marketing Campaign — pass a compact product summary (not the whole book).
             logger.info("orchestrator_stage", stage="marketing_campaign")
             out = prod_res.output
@@ -389,6 +407,7 @@ class OrchestratorAgent(AgentBase):
                         stmt = select(Product).where(Product.name == prod_name)
                         db_product = (await session.execute(stmt)).scalar_one_or_none()
                         if not db_product:
+                            prod_url = out.get("platform_url") if is_dict else None
                             db_product = Product(
                                 niche_id=db_niche.id,
                                 name=prod_name,
@@ -397,9 +416,9 @@ class OrchestratorAgent(AgentBase):
                                 content=prod_body,
                                 sales_page_copy=prod_sales,
                                 description=(prod_body[:300] if prod_body else ""),
-                                status="ready_local",
-                                platform=None,
-                                platform_url=None,
+                                status="published" if prod_url else "ready_local",
+                                platform=(out.get("platform") if is_dict else None),
+                                platform_url=prod_url,
                             )
                             session.add(db_product)
                             await session.flush()  # Populate db_product.id for the campaign FK
@@ -421,6 +440,27 @@ class OrchestratorAgent(AgentBase):
             logger.info("database_persistence_success", niche=niche_name)
         except Exception as e:
             logger.error("database_persistence_failed", error=str(e))
+
+        # 10. Rebuild the static blog site from all published articles (real SEO hub).
+        try:
+            import os
+            if os.getenv("BUILD_SITE", "true").lower() in ("1", "true", "yes"):
+                from storage.database import async_session_factory, Content
+                from sqlalchemy import select
+                from publishers.static_site_builder import StaticSiteBuilder
+                async with async_session_factory() as session:
+                    rows = (await session.execute(
+                        select(Content).where(Content.status == "published")
+                        .order_by(Content.created_at.desc()).limit(100)
+                    )).scalars().all()
+                articles = [{"title": c.title, "body": c.body, "meta_description": c.meta_description} for c in rows]
+                if articles:
+                    StaticSiteBuilder(output_dir=os.getenv("SITE_DIR", "site")).build_site(
+                        os.getenv("SITE_NAME", niche_name), articles
+                    )
+                    report["site_articles"] = len(articles)
+        except Exception as e:
+            logger.error("static_site_build_failed", error=str(e))
 
         self.mark_success(report)
         return report

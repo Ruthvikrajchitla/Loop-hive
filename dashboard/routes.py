@@ -43,6 +43,8 @@ AGENT_META: list[dict] = [
      "description": "Scrapes trends and ranks high-intent commercial niches."},
     {"name": "legal_researcher", "icon": "⚖️", "stage": "Researching compliance",
      "description": "Investigates FTC / EU AI Act / platform rules for the niche."},
+    {"name": "research_agent", "icon": "🧪", "stage": "Deep topic research",
+     "description": "Gathers web + academic sources and writes a cited research brief."},
     {"name": "content_writer", "icon": "✍️", "stage": "Writing & revising the article",
      "description": "Drafts long-form articles and revises them on reviewer feedback."},
     {"name": "content_critic", "icon": "📝", "stage": "Reviewing draft quality",
@@ -58,7 +60,14 @@ AGENT_META: list[dict] = [
     {"name": "monthly_evaluator", "icon": "📊", "stage": "Evaluating niche KPIs",
      "description": "Aggregates KPIs and decides CONTINUE / PIVOT / KILL."},
 ]
-AGENT_META_BY_NAME = {a["name"]: a for a in AGENT_META}
+# Side agents — run on their own cadence (not part of the linear content pipeline).
+SIDE_AGENTS: list[dict] = [
+    {"name": "code_builder", "icon": "💻", "stage": "Building a code tool",
+     "description": "Builds, sandbox-tests and ships real developer tools to GitHub."},
+    {"name": "outreach_agent", "icon": "📨", "stage": "Outreach",
+     "description": "Finds one public request per day and drafts transparent outreach."},
+]
+AGENT_META_BY_NAME = {a["name"]: a for a in AGENT_META + SIDE_AGENTS}
 COORDINATOR_META = {"name": "orchestrator", "icon": "🧠", "stage": "Coordinating the pipeline",
                     "description": "Drives the specialist agents through the full lifecycle."}
 
@@ -161,8 +170,8 @@ async def _live_state() -> dict:
             agg = {row[0]: {"runs": row[1] or 0, "tokens": int(row[2] or 0), "successes": row[3] or 0}
                    for row in agg_rows}
 
-            # Build the agent cards (specialists + coordinator)
-            for meta in AGENT_META + [COORDINATOR_META]:
+            # Build the agent cards (specialists + side agents + coordinator)
+            for meta in AGENT_META + SIDE_AGENTS + [COORDINATOR_META]:
                 name = meta["name"]
                 latest = latest_by_agent.get(name)
                 a = agg.get(name, {"runs": 0, "tokens": 0, "successes": 0})
@@ -611,6 +620,53 @@ async def _earnings_summary() -> dict:
         "net_profit": total_revenue,
         "breakdown": breakdown,
     }
+
+
+@router.post("/webhooks/gumroad")
+async def gumroad_webhook(request: Request):
+    """Record a confirmed sale from Gumroad's ping so Earnings becomes real.
+
+    Configure the ping URL in Gumroad → Settings → Advanced. Optionally set
+    GUMROAD_WEBHOOK_SECRET and include it as a `secret` form field.
+    """
+    import os
+    try:
+        form = await request.form()
+    except Exception:
+        return {"status": "bad_request"}
+
+    secret = os.getenv("GUMROAD_WEBHOOK_SECRET", "")
+    if secret and form.get("secret") != secret:
+        return {"status": "unauthorized"}
+
+    try:
+        amount = float(form.get("price", 0) or 0) / 100.0  # Gumroad sends cents
+    except (TypeError, ValueError):
+        amount = 0.0
+    name = form.get("product_name", "product")
+
+    try:
+        from storage.database import async_session_factory, Revenue, Product
+        from sqlalchemy import select
+        async with async_session_factory() as session:
+            async with session.begin():
+                product = (await session.execute(
+                    select(Product).where(Product.name == name)
+                )).scalar_one_or_none()
+                session.add(Revenue(
+                    source="product",
+                    amount=amount,
+                    description=name[:500],
+                    product_id=product.id if product else None,
+                ))
+                if product:
+                    product.total_sales = (product.total_sales or 0) + 1
+                    product.total_revenue = (product.total_revenue or 0.0) + amount
+        logger.info("gumroad_sale_recorded", product=name, amount=amount)
+        return {"status": "recorded", "amount": amount}
+    except Exception as e:
+        logger.error("gumroad_webhook_failed", error=str(e))
+        return {"status": "error"}
 
 
 @router.get("/api/live")
