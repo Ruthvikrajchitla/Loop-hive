@@ -1,0 +1,13 @@
+2026-07-04 09:21:40 [info     ] micro_loop_started             agent=analyzer_agent goal='Analyze the market and pick a product to build' max_iterations=2
+2026-07-04 09:21:40 [debug    ] perceive_complete              agent=analyzer_agent iteration=1
+2026-07-04 09:21:40 [debug    ] reason_complete                agent=analyzer_agent iteration=1
+2026-07-04 09:21:45 [info     ] tavily_search_done             query='AI Tools, Agentic Workflows & Prompt Engineering reddit what people wish existed' results=4
+2026-07-04 09:21:49 [info     ] arxiv_search_done              query='AI Tools, Agentic Workflows & Prompt Engineering reddit what people wish existed' results=3
+2026-07-04 09:21:54 [info     ] tavily_search_done             query='"i wish there was a tool" OR "someone should build" AI Tools, Agentic Workflows ' results=4
+2026-07-04 09:21:55 [info     ] arxiv_search_done              query='"i wish there was a tool" OR "someone should build" AI Tools, Agentic Workflows ' results=3
+2026-07-04 09:21:59 [info     ] tavily_search_done             query='most requested AI Tools, Agentic Workflows & Prompt Engineering tools twitter 20' results=4
+2026-07-04 09:22:00 [info     ] arxiv_search_done              query='most requested AI Tools, Agentic Workflows & Prompt Engineering tools twitter 20' results=3
+2026-07-04 09:22:05 [info     ] tavily_search_done             query='biggest problems AI Tools, Agentic Workflows & Prompt Engineering quora' results=4
+2026-07-04 09:22:07 [info     ] arxiv_search_done              query='biggest problems AI Tools, Agentic Workflows & Prompt Engineering quora' results=3
+2026-07-04 09:22:07 [info     ] market_signals_gathered        niche='AI Tools, Agentic Workflows & Prompt Engineering' sources=8
+2026-07-04 09:22:08 [warning  ] provider_rate_limited          cooldown_seconds=60.0 provider=gemini status=429

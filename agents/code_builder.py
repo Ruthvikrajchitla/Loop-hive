@@ -58,11 +58,22 @@ class CodeBuilderAgent(AgentBase):
 
     async def perceive(self, context: ContextWindow) -> dict:
         self.mark_running()
+        import json
         niche = config.forced_niche or "AI developer tools"
         topic = ""
         build_type = "developer tool"
+        plan = None
+        feedback = ""
         for entry in reversed(context.entries):
-            for line in entry["content"].split("\n"):
+            c = entry["content"]
+            if "PLAN:" in c and plan is None:
+                try:
+                    plan = json.loads(c.split("PLAN:", 1)[1].strip())
+                except Exception:
+                    plan = None
+            if "CRITIC FEEDBACK:" in c and not feedback:
+                feedback = c.split("CRITIC FEEDBACK:", 1)[1].strip()[:4000]
+            for line in c.split("\n"):
                 low = line.lower().strip()
                 if low.startswith("topic:"):
                     topic = line.split(":", 1)[1].strip() or topic
@@ -70,15 +81,23 @@ class CodeBuilderAgent(AgentBase):
                     build_type = line.split(":", 1)[1].strip() or build_type
                 elif "Goal:" in line and not topic:
                     topic = line.split("Goal:", 1)[1].strip()
+        if plan and plan.get("build_type"):
+            build_type = plan["build_type"]
         return {
             "timestamp": time.time(),
             "niche": niche,
             "topic": topic or f"a useful tool for {niche}",
             "build_type": build_type,
+            "plan": plan,
+            "feedback": feedback,
         }
 
     async def reason(self, state: dict, goal: str) -> dict:
-        """Spec Architect — design the project blueprint for the chosen build type."""
+        """Use the Planner's plan if provided; otherwise act as the Spec Architect."""
+        # Plan-driven mode (product pipeline): the Planner already designed the spec.
+        if state.get("plan") and state["plan"].get("files"):
+            return {"state": state, "spec": state["plan"], "build_type": state.get("build_type", "developer tool")}
+
         topic = state["topic"]
         build_type = state.get("build_type", "developer tool")
         guidance = self.BUILD_TYPES.get(build_type.lower(), self.BUILD_TYPES["developer tool"])
@@ -109,6 +128,18 @@ class CodeBuilderAgent(AgentBase):
         if "README.md" not in paths:
             file_specs.append({"path": "README.md", "purpose": "Setup and usage documentation"})
 
+        state = plan.get("state", {})
+        feedback = state.get("feedback", "")
+        features = spec.get("features", []) or []
+        criteria = spec.get("acceptance_criteria", []) or []
+        context_block = ""
+        if features:
+            context_block += "Features to implement across the project: " + "; ".join(map(str, features)) + "\n"
+        if criteria:
+            context_block += "Acceptance criteria (the build must satisfy these): " + "; ".join(map(str, criteria)) + "\n"
+        if feedback:
+            context_block += f"ADDRESS THIS REVIEWER FEEDBACK from the last round: {feedback}\n"
+
         files: dict[str, str] = {}
         for fs in file_specs:
             path = fs.get("path")
@@ -119,7 +150,8 @@ class CodeBuilderAgent(AgentBase):
                 continue
             code = await self.ask_llm(
                 f"Project: {name} — {description}\n"
-                f"Declared dependencies: {', '.join(deps) or 'none'}\n\n"
+                f"Declared dependencies: {', '.join(deps) or 'none'}\n"
+                f"{context_block}\n"
                 f"Write the COMPLETE contents of the file '{path}'. Purpose: {fs.get('purpose', '')}\n"
                 f"Rules: complete and runnable, real logic + error handling, no placeholders or TODOs. "
                 f"Output ONLY the raw file contents (no markdown fences, no commentary).",

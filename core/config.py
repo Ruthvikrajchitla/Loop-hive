@@ -126,6 +126,17 @@ class AppConfig:
         default_factory=lambda: os.getenv("FINALIZE_PROVIDER", "nvidia-ultra")
     )
 
+    # Product-building agency pipeline (Analyzer→Research→Planner→Builder↔Critic→Marketer).
+    product_mode: bool = field(  # product-building is the primary flow (vs. content/ebooks)
+        default_factory=lambda: os.getenv("PRODUCT_MODE", "true").lower() in ("1", "true", "yes")
+    )
+    build_rounds: int = field(  # Builder <-> Critic validation loops before shipping
+        default_factory=lambda: int(os.getenv("BUILD_ROUNDS", "3"))
+    )
+    client_work_enabled: bool = field(  # second half of the day: build for real clients
+        default_factory=lambda: os.getenv("CLIENT_WORK_ENABLED", "true").lower() in ("1", "true", "yes")
+    )
+
     # Code products — the swarm builds real tools, tests them in a sandbox, and
     # ships the working ones to a GitHub org (the portfolio engine).
     code_products_enabled: bool = field(

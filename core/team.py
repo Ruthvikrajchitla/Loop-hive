@@ -12,6 +12,9 @@ from __future__ import annotations
 # agent_name -> (persona name, job title)
 TEAM: dict[str, tuple[str, str]] = {
     "orchestrator": ("Max", "Managing Director"),
+    "analyzer_agent": ("Nova", "Market Analyst"),
+    "planner_agent": ("Piper", "Technical Architect"),
+    "product_critic": ("Quill", "QA & Validation Lead"),
     "niche_scout": ("Nova", "Market Scout"),
     "legal_researcher": ("Lex", "Compliance Researcher"),
     "research_agent": ("Aria", "Research Analyst"),

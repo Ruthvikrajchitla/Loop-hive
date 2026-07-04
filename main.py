@@ -128,6 +128,22 @@ async def _today_counts() -> tuple[int, int]:
     return articles, products
 
 
+async def _find_client_brief(niche_name: str) -> tuple[str | None, str | None]:
+    """Find one public request to build something for a real client (brief, email)."""
+    import re
+    from core.research_tools import tavily_search
+    for q in (f'"looking for a developer" to build {niche_name}',
+              f'"need someone to build" tool OR extension OR website',
+              f'"anyone able to build" {niche_name}'):
+        results = await tavily_search(q, max_results=3)
+        if results:
+            top = results[0]
+            brief = f"{top.get('title','')}. {top.get('content','')[:800]}"
+            m = re.search(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", top.get("content", ""))
+            return brief, (m.group(0) if m else None)
+    return None, None
+
+
 async def _outreach_count_today() -> int:
     """How many outreach attempts were logged today (UTC)."""
     try:
@@ -211,6 +227,8 @@ async def run_swarm(continuous: bool = True, interval: float | None = None) -> N
     await init_db()
 
     orchestrator = OrchestratorAgent()
+    from agents.product_orchestrator import ProductOrchestrator
+    product_orch = ProductOrchestrator()
     micro = MicroLoop(max_iterations=2, timeout_seconds=1800.0)
     meso = MesoLoop()
     macro = MacroLoop()
@@ -235,7 +253,8 @@ async def run_swarm(continuous: bool = True, interval: float | None = None) -> N
     while True:
         # --- Daily target gate: build until quota met, then idle until tomorrow ---
         articles_today, products_today = await _today_counts()
-        if articles_today >= target_articles and products_today >= target_products:
+        art_target = 0 if config.product_mode else target_articles  # product mode has no articles
+        if articles_today >= art_target and products_today >= target_products:
             logger.info(
                 "daily_target_reached",
                 articles=articles_today, products=products_today,
@@ -249,23 +268,30 @@ async def run_swarm(continuous: bool = True, interval: float | None = None) -> N
             continue
 
         cycle += 1
-        logger.info(
-            "swarm_cycle_start", cycle=cycle,
-            articles_today=articles_today, products_today=products_today,
-            target_articles=target_articles, target_products=target_products,
-        )
+        logger.info("swarm_cycle_start", cycle=cycle)
 
-        # --- Tier 1: MicroLoop — run the full pipeline through perceive→verify ---
-        res = await micro.run(
-            orchestrator, "Run E2E pipeline for autonomous monetization"
-        )
-        report = res.output if isinstance(res.output, dict) else {}
-        print(f"\n[LoopHive] Cycle {cycle} — status={res.status.value}")
-        print(f"  Niche:    {report.get('niche', {}).get('name', 'Unknown')}")
-        print(f"  Article:  {report.get('article_written', False)} "
-              f"(quality {report.get('critic_score', 0)}, originality {report.get('originality_score', 0)})")
-        print(f"  Product:  {report.get('product_created', False)}")
-        print(f"  Channels: {report.get('marketing_channels', 0)}")
+        if config.product_mode:
+            # Product-building agency: half the day builds our own product, the
+            # other half builds for real clients (found via outreach).
+            import datetime as _dt
+            hour = _dt.datetime.utcnow().hour
+            phase = "client" if (config.client_work_enabled and hour >= 12) else "own"
+            client_brief = client_email = None
+            if phase == "client":
+                client_brief, client_email = await _find_client_brief(niche_name)
+                if not client_brief:
+                    phase = "own"
+            report = await product_orch.run_cycle(phase=phase, client_brief=client_brief, client_email=client_email)
+            print(f"\n[LoopHive] Cycle {cycle} — phase={phase}")
+            print(f"  Product:  {report.get('product_name')} ({report.get('build_type')})")
+            print(f"  Built:    {report.get('planned_files', 0)} planned files · "
+                  f"production_ready={report.get('production_ready')} (critic {report.get('critic_score', 0)})")
+            print(f"  Repo:     {report.get('repo_url') or '—'}")
+        else:
+            res = await micro.run(orchestrator, "Run E2E pipeline for autonomous monetization")
+            report = res.output if isinstance(res.output, dict) else {}
+            print(f"\n[LoopHive] Cycle {cycle} — status={res.status.value}")
+            print(f"  Product:  {report.get('product_created', False)} · Article: {report.get('article_written', False)}")
 
         niche_name = await _active_niche_name()
         now = time.time()
