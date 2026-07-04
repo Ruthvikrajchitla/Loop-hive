@@ -96,13 +96,15 @@ class ProductCriticAgent(AgentBase):
         }
 
     async def verify(self, result: Any, goal: str) -> Verification:
-        if not isinstance(result, dict):
-            return Verification(is_complete=False, should_retry=True, feedback="No review produced.", reason="Bad output.")
-        if result.get("production_ready"):
-            return Verification(is_complete=True, score=float(result.get("score", 90)),
-                                feedback=f"Production-ready ({result.get('score')}/100).")
+        # The critic's job is to PRODUCE a verdict — it completes once it has one.
+        # The orchestrator reads result['production_ready'] and loops the builder if
+        # needed (retrying the critic on the same files would never change the verdict).
+        if not isinstance(result, dict) or "production_ready" not in result:
+            return Verification(is_complete=False, should_retry=True,
+                                feedback="No valid review produced.", reason="Bad output.")
+        ready = result.get("production_ready")
         return Verification(
-            is_complete=False, should_retry=True,
-            feedback=result.get("feedback", "Not production-ready."),
-            reason="Product not production-ready.", score=float(result.get("score", 0)),
+            is_complete=True, score=float(result.get("score", 0)),
+            feedback=(f"Production-ready ({result.get('score')}/100)." if ready
+                      else f"Not ready: {result.get('feedback', '')[:160]}"),
         )

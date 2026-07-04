@@ -115,7 +115,7 @@ class CodeBuilderAgent(AgentBase):
         """Engineer each file, sandbox-check, and self-heal."""
         spec = plan.get("spec", {})
         build_type = plan.get("build_type", "developer tool")
-        name = spec.get("project_name") or "loophive-tool"
+        name = spec.get("project_name") or spec.get("product_name") or "loophive-tool"
         description = spec.get("description", "")
         deps = spec.get("dependencies", []) or []
         file_specs = spec.get("files", []) or []
