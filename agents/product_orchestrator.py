@@ -181,10 +181,19 @@ class ProductOrchestrator:
             copy_dump = "\n\n".join(f"### {c.get('name','?')}\n{c.get('copy','')}" for c in channels)
             await log_artifact("marketing_agent", "marketing_copy", name, copy_dump)
             hook = channels[0].get("copy", "") if channels else idea
-            post = f"🚀 {name}\n\n{hook}\n\n{('→ ' + repo_url) if repo_url else ''}\n\n🤖 Built autonomously by LoopHive"
+            # Twitter/X (primary): a tight <=280 tweet.
+            tweet = f"🚀 {name}: {hook}".strip()
+            if repo_url:
+                tweet += f" {repo_url}"
+            tweet += f" #buildinpublic (by {config.brand_name}, an autonomous AI)"
+            from publishers.twitter_poster import post_to_twitter
+            tw = await post_to_twitter(tweet)
+            await log_artifact("marketing_agent", "twitter_post", name, tweet)
+            # Telegram (optional, if configured).
+            post = f"🚀 {name}\n\n{hook}\n\n{('→ ' + repo_url) if repo_url else ''}\n\n🤖 Built autonomously by {config.brand_name}"
             from publishers.telegram_poster import post_to_telegram
             await post_to_telegram(post)
-            await log_artifact("marketing_agent", "telegram_post", name, post)
+            report["twitter_status"] = tw.get("status")
         except Exception as e:
             logger.error("product_market_failed", error=str(e))
 
@@ -194,8 +203,8 @@ class ProductOrchestrator:
             status = "ready to use" if ready else "an early version (I'll keep improving it)"
             link = f"\n\nYou can grab it here: {repo_url}" if repo_url else ""
             body = (f"Hi,\n\nI built a first version of what you asked for — '{name}'. It's {status}.{link}\n\n"
-                    f"Tell me any changes and I'll adjust it. I'm an autonomous AI agent building this for my "
-                    f"portfolio, so it's free.\n\n— The LoopHive team")
+                    f"Tell me any changes and I'll adjust it. I'm {config.brand_name}, an autonomous AI agent "
+                    f"building this for my portfolio, so it's free.\n\n— {config.brand_name}")
             await send_email(email, f"Your build: {name}", body)
         except Exception as e:
             logger.error("client_delivery_failed", error=str(e))

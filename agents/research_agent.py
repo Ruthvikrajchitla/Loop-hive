@@ -81,68 +81,71 @@ class DeepResearchAgent(AgentBase):
         }
 
     async def act(self, plan: dict) -> ResearchBrief:
-        """Gather sources, then synthesize a research brief."""
+        """Iterative deep research: search → synthesize → find gaps → dig deeper, over
+        several rounds, then write a final comprehensive report. Genuinely thorough
+        (real depth over many searches + synthesis passes), not a single quick pass."""
         topic = plan["topic"]
         niche = plan["niche"]
         queries = plan["queries"]
 
-        # 1. Gather sources across queries.
-        per_query = max(2, config.research_max_sources // max(1, len(queries)))
         all_sources: list[dict] = []
-        for q in queries:
-            all_sources.extend(await gather_sources(q, max_sources=per_query))
-
-        # De-dup across queries and cap total.
         seen: set[str] = set()
-        sources: list[dict] = []
-        for s in all_sources:
-            key = (s.get("url") or s.get("title") or "").lower()
-            if key and key not in seen:
-                seen.add(key)
-                sources.append(s)
-        sources = sources[: config.research_max_sources]
+        notes = ""
+        rounds = max(1, config.research_rounds)
 
-        logger.info("research_gathered", topic=topic[:80], sources=len(sources), queries=len(queries))
+        for rnd in range(1, rounds + 1):
+            per_query = max(2, config.research_max_sources // max(1, len(queries)))
+            for q in queries:
+                for s in await gather_sources(q, max_sources=per_query):
+                    key = (s.get("url") or s.get("title") or "").lower()
+                    if key and key not in seen and s.get("content"):
+                        seen.add(key)
+                        all_sources.append(s)
+            logger.info("research_round", round=rnd, of=rounds, topic=topic[:60], sources=len(all_sources))
 
-        # 2. Synthesize into a structured brief (cite source titles).
-        if sources:
+            # Synthesize/deepen the running notes with everything gathered so far.
             corpus = "\n\n".join(
-                f"SOURCE [{i+1}] ({s['source']}): {s['title']}\nURL: {s['url']}\n{s['content']}"
-                for i, s in enumerate(sources)
-            )[:24000]
-            synth_prompt = (
-                f"Topic: {topic}\nNiche: {niche}\n\n"
-                f"Using ONLY the sources below, write a dense research brief for a writer who will create "
-                f"an authoritative, original guide/ebook on this topic. Structure it as Markdown with:\n"
-                f"## Key Facts & Statistics (cite the source number)\n"
-                f"## Current Trends (2025-2026)\n"
-                f"## Tools / Examples / Case Studies\n"
-                f"## Audience Pain Points & Common Questions\n"
-                f"## Differing Viewpoints or Pitfalls\n"
-                f"## Recommended Article/Ebook Outline (with section headings)\n\n"
-                f"Be concrete and specific — pull out numbers, names, and quotes. Do not invent facts "
-                f"that aren't in the sources.\n\nSOURCES:\n{corpus}"
-            )
-        else:
-            # No external sources available — still produce a strong brief from expertise.
-            synth_prompt = (
-                f"No external sources were retrievable. Write a thorough, expert research brief for a "
-                f"writer creating an authoritative guide/ebook on '{topic}' within the '{niche}' niche. "
-                f"Use Markdown with sections: Key Facts, Current Trends (2025-2026), Tools/Examples, "
-                f"Audience Pain Points & Questions, Pitfalls, and a Recommended Outline. Be concrete and "
-                f"avoid generic filler."
+                f"SOURCE ({s['source']}): {s['title']}\n{s['content'][:1800]}" for s in all_sources
+            )[:26000] or "No external sources retrieved; rely on expert knowledge."
+            notes = await self.ask_llm(
+                f"Topic: {topic} (niche: {niche}).\n\nPRIOR NOTES:\n{notes[:6000]}\n\n"
+                f"NEW SOURCES:\n{corpus}\n\n"
+                f"Update and DEEPEN the running research notes: concrete facts and numbers, named real "
+                f"tools/products, exactly what users struggle with and want, how the best solutions work, "
+                f"differentiators, pitfalls, and the current 2026 state. Be specific; never invent. Markdown.",
+                temperature=0.35, max_tokens=4096,
             )
 
-        report = await self.ask_llm(synth_prompt, temperature=0.4, max_tokens=4096)
+            # Find the biggest remaining gaps and search those next round.
+            if rnd < rounds:
+                gaps = await self.ask_llm_json(
+                    f"Given these research notes on '{topic}', list the 3-5 MOST IMPORTANT questions that "
+                    f"are still unanswered or too shallow — the things we must dig into next to make this "
+                    f"research genuinely deep and decision-ready.\n\nNOTES:\n{notes[:6000]}\n\n"
+                    f"Output JSON: {{'queries': [str]}}",
+                    temperature=0.3, max_tokens=700,
+                )
+                queries = [q for q in gaps.get("queries", []) if isinstance(q, str) and q.strip()][: config.research_depth]
+                if not queries:
+                    break
+
+        # Final comprehensive, decision-ready report.
+        report = await self.ask_llm(
+            f"Write the FINAL, comprehensive research report on '{topic}' (niche: {niche}) from the notes "
+            f"below. Markdown sections: ## Overview ## Key Facts & Numbers ## Current State (2026) "
+            f"## Tools & Real Examples ## User Pain Points & Unmet Needs ## How the Best Solutions Work "
+            f"## Pitfalls ## What To Build (concrete, opinionated recommendations). Dense, specific, and "
+            f"decision-ready — this drives an engineering team's build.\n\nNOTES:\n{notes[:16000]}",
+            temperature=0.4, max_tokens=5000,
+        )
 
         brief = ResearchBrief({
-            "topic": topic,
-            "niche": niche,
-            "report": report,
-            "sources": [{"title": s["title"], "url": s["url"], "source": s["source"]} for s in sources],
-            "source_count": len(sources),
+            "topic": topic, "niche": niche, "report": report,
+            "sources": [{"title": s["title"], "url": s["url"], "source": s["source"]} for s in all_sources],
+            "source_count": len(all_sources),
+            "rounds": rounds,
         })
-        self.mark_success({"topic": topic, "sources": len(sources), "report_chars": len(report)})
+        self.mark_success({"topic": topic, "sources": len(all_sources), "report_chars": len(report), "rounds": rounds})
         return brief
 
     async def verify(self, result: Any, goal: str) -> Verification:

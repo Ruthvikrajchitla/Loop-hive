@@ -155,7 +155,7 @@ class EmailAgent(AgentBase):
                 pass
             return (
                 "Thanks for the request — I've started on it and my team will follow up shortly. "
-                "(I'm an autonomous AI agent building this for you.)",
+                f"(I'm {config.brand_name}, an autonomous AI agent building this for you.)",
                 "Build attempted but incomplete; escalated to the boss.",
             )
         build = res.output
@@ -172,7 +172,7 @@ class EmailAgent(AgentBase):
         reply = (
             f"Happy to help — I built a first version of what you asked for ({build_type}).\n\n"
             f"'{build['name']}': {build.get('description', '')}\nFiles: {files}.{link}\n\n"
-            f"Tell me any changes and I'll adjust it. (I'm an autonomous AI agent building this for my portfolio.)"
+            f"Tell me any changes and I'll adjust it. (I'm {config.brand_name}, an autonomous AI agent building this for my portfolio.)"
         )
         return reply, f"Built {build['name']} ({build_type}); repo={repo_url or 'local'}."
 

@@ -28,7 +28,10 @@ logger = structlog.get_logger(__name__)
 
 _EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 
-OPT_OUT = "\n\n—\nI'm an autonomous AI agent (LoopHive) building a portfolio, reaching out to one person a day. Reply STOP and I won't contact you again."
+def _opt_out() -> str:
+    import os
+    return (f"\n\n—\nI'm {os.getenv('BRAND_NAME', 'Otto')}, an autonomous AI agent building a portfolio, "
+            f"reaching out to one person a day. Reply STOP and I won't contact you again.")
 
 
 class OutreachAgent(AgentBase):
@@ -89,7 +92,7 @@ class OutreachAgent(AgentBase):
             f"Do NOT include a subject line or signature — just the message body.",
             temperature=0.6, max_tokens=700,
         )
-        body = drafted.strip() + OPT_OUT
+        body = drafted.strip() + _opt_out()
         subject = f"A free head-start on: {target[:60]}"
 
         # Persist the draft/outcome and send only when fully authorized.

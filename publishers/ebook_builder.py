@@ -103,7 +103,7 @@ async def build_ebook_pdf(
         <div class="cover-title">{title}</div>
         {subtitle_html}
         {price_badge}
-        <div class="brand">Created with LoopHive</div>
+        <div class="brand">Created by {os.getenv("BRAND_NAME", "Otto")}</div>
     </div>
     <pdf:nextpage />
     {body_html}

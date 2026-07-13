@@ -27,7 +27,7 @@ async def escalate(title: str, body: str, level: str = "critical", source: str =
             res = await send_email(
                 boss_email,
                 f"[LoopHive · {level.upper()}] {title}",
-                f"Hi {boss_name},\n\n{body}\n\n— Your LoopHive agent team",
+                f"Hi {boss_name},\n\n{body}\n\n— {os.getenv('BRAND_NAME', 'Otto')}, your autonomous agent",
             )
             emailed = res.get("status") == "sent"
         except Exception as e:

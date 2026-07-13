@@ -564,7 +564,7 @@ class OrchestratorAgent(AgentBase):
         if not hook:
             hook = (product.get("sales_page_copy", "") or "")[:400]
         price_str = f" — ${price:.2f}" if isinstance(price, (int, float)) else ""
-        return f"📘 {name}{price_str}\n\n{hook.strip()}\n\n🤖 Built autonomously by LoopHive"
+        return f"📘 {name}{price_str}\n\n{hook.strip()}\n\n🤖 Built autonomously by {config.brand_name}"
 
     async def verify(self, result: Any, goal: str) -> Verification:
         """Verify the orchestration pipeline ran successfully and logged outputs."""

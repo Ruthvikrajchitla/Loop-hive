@@ -271,6 +271,10 @@ async def test_full_pipeline_orchestration(mock_generate):
     # Keep ebook length thresholds tiny so the mocked chapters satisfy verify.
     config.ebook_min_sections = 1
     config.ebook_section_words = 50
+    # Keep research shallow/fast in the unit test (avoids many real searches).
+    config.research_rounds = 1
+    config.research_depth = 2
+    config.research_max_sources = 3
 
     # Initialize the orchestrator
     orchestrator = OrchestratorAgent()

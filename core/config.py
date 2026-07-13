@@ -107,6 +107,9 @@ class AppConfig:
     research_max_sources: int = field(
         default_factory=lambda: int(os.getenv("RESEARCH_MAX_SOURCES", "8"))
     )
+    research_rounds: int = field(  # iterative deep-research passes (find gaps → dig deeper)
+        default_factory=lambda: int(os.getenv("RESEARCH_ROUNDS", "3"))
+    )
 
     # Mixture-of-Agents "fusion" writing — several models draft, an aggregator fuses.
     fusion_enabled: bool = field(
@@ -199,6 +202,9 @@ class AppConfig:
     max_weekly_products: int = field(
         default_factory=lambda: int(os.getenv("MAX_WEEKLY_PRODUCTS", "1"))
     )
+
+    # Brand identity — the agent's public name (email/GitHub/posts sign-offs).
+    brand_name: str = field(default_factory=lambda: os.getenv("BRAND_NAME", "Otto"))
 
     # The boss (human owner) the agents report to and escalate to.
     boss_name: str = field(default_factory=lambda: os.getenv("BOSS_NAME", "Boss"))

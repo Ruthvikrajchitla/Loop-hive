@@ -1,0 +1,78 @@
+2026-07-04 09:55:12 [info     ] micro_loop_started             agent=analyzer_agent goal='Analyze the market and pick a product to build' max_iterations=2
+2026-07-04 09:55:12 [debug    ] perceive_complete              agent=analyzer_agent iteration=1
+2026-07-04 09:55:12 [debug    ] reason_complete                agent=analyzer_agent iteration=1
+2026-07-04 09:55:16 [info     ] tavily_search_done             query='AI Tools, Agentic Workflows & Prompt Engineering reddit what people wish existed' results=4
+2026-07-04 09:55:17 [info     ] arxiv_search_done              query='AI Tools, Agentic Workflows & Prompt Engineering reddit what people wish existed' results=3
+2026-07-04 09:55:20 [info     ] tavily_search_done             query='"i wish there was a tool" OR "someone should build" AI Tools, Agentic Workflows ' results=4
+2026-07-04 09:55:21 [info     ] arxiv_search_done              query='"i wish there was a tool" OR "someone should build" AI Tools, Agentic Workflows ' results=3
+2026-07-04 09:55:25 [info     ] tavily_search_done             query='most requested AI Tools, Agentic Workflows & Prompt Engineering tools twitter 20' results=4
+2026-07-04 09:55:25 [info     ] arxiv_search_done              query='most requested AI Tools, Agentic Workflows & Prompt Engineering tools twitter 20' results=3
+2026-07-04 09:55:30 [info     ] tavily_search_done             query='biggest problems AI Tools, Agentic Workflows & Prompt Engineering quora' results=4
+2026-07-04 09:55:30 [info     ] arxiv_search_done              query='biggest problems AI Tools, Agentic Workflows & Prompt Engineering quora' results=3
+2026-07-04 09:55:30 [info     ] market_signals_gathered        niche='AI Tools, Agentic Workflows & Prompt Engineering' sources=8
+2026-07-04 09:55:32 [warning  ] provider_rate_limited          cooldown_seconds=60.0 provider=gemini status=429
+2026-07-04 09:55:33 [info     ] llm_request_success            model=llama-3.3-70b-versatile provider=groq-smart tokens=2859
+2026-07-04 09:55:33 [debug    ] act_complete                   agent=analyzer_agent iteration=1
+2026-07-04 09:55:33 [info     ] verify_complete                agent=analyzer_agent complete=True iteration=1 score=92.0
+2026-07-04 09:55:33 [info     ] micro_loop_success             agent=analyzer_agent duration=21.129809141159058 iterations=1
+2026-07-04 09:55:33 [info     ] product_pipeline               build_type='developer tool' phase=own product=AgentStudio
+2026-07-04 09:55:33 [info     ] micro_loop_started             agent=research_agent goal='Research: AgentStudio is a developer tool that enables users to build, deploy, and manage agentic wo' max_iterations=2
+2026-07-04 09:55:33 [debug    ] perceive_complete              agent=research_agent iteration=1
+2026-07-04 09:55:33 [debug    ] reason_complete                agent=research_agent iteration=1
+2026-07-04 09:55:35 [warning  ] tavily_search_failed           error="Client error '400 Bad Request' for url 'https://api.tavily.com/search'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/S" query='AgentStudio is a developer tool that enables users to build, deploy, and manage '
+2026-07-04 09:55:44 [info     ] arxiv_search_done              query='AgentStudio is a developer tool that enables users to build, deploy, and manage ' results=3
+2026-07-04 09:55:46 [warning  ] tavily_search_failed           error="Client error '400 Bad Request' for url 'https://api.tavily.com/search'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/S" query='AgentStudio is a developer tool that enables users to build, deploy, and manage '
+2026-07-04 09:55:53 [info     ] arxiv_search_done              query='AgentStudio is a developer tool that enables users to build, deploy, and manage ' results=3
+2026-07-04 09:55:54 [warning  ] tavily_search_failed           error="Client error '400 Bad Request' for url 'https://api.tavily.com/search'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/S" query='best tools for AgentStudio is a developer tool that enables users to build, depl'
+2026-07-04 09:56:00 [info     ] arxiv_search_done              query='best tools for AgentStudio is a developer tool that enables users to build, depl' results=3
+2026-07-04 09:56:01 [warning  ] tavily_search_failed           error="Client error '400 Bad Request' for url 'https://api.tavily.com/search'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/S" query='AgentStudio is a developer tool that enables users to build, deploy, and manage '
+2026-07-04 09:56:06 [info     ] arxiv_search_done              query='AgentStudio is a developer tool that enables users to build, deploy, and manage ' results=3
+2026-07-04 09:56:06 [info     ] research_gathered              queries=4 sources=2 topic='AgentStudio is a developer tool that enables users to build, deploy, and manage '
+2026-07-04 09:56:06 [debug    ] provider_skipped               provider=gemini reason=rate_limited_or_exhausted
+2026-07-04 09:56:08 [info     ] llm_request_success            model=llama-3.3-70b-versatile provider=groq-smart tokens=1350
+2026-07-04 09:56:08 [debug    ] act_complete                   agent=research_agent iteration=1
+2026-07-04 09:56:08 [info     ] verify_complete                agent=research_agent complete=True iteration=1 score=95.0
+2026-07-04 09:56:08 [info     ] micro_loop_success             agent=research_agent duration=34.46436405181885 iterations=1
+2026-07-04 09:56:08 [info     ] micro_loop_started             agent=planner_agent goal='Plan the product build' max_iterations=2
+2026-07-04 09:56:08 [debug    ] perceive_complete              agent=planner_agent iteration=1
+2026-07-04 09:56:08 [debug    ] reason_complete                agent=planner_agent iteration=1
+2026-07-04 09:56:08 [debug    ] provider_skipped               provider=gemini reason=rate_limited_or_exhausted
+2026-07-04 09:56:09 [info     ] llm_request_success            model=llama-3.3-70b-versatile provider=groq-smart tokens=1550
+2026-07-04 09:56:09 [debug    ] act_complete                   agent=planner_agent iteration=1
+2026-07-04 09:56:09 [info     ] verify_complete                agent=planner_agent complete=True iteration=1 score=93.0
+2026-07-04 09:56:09 [info     ] micro_loop_success             agent=planner_agent duration=1.1984314918518066 iterations=1
+2026-07-04 09:56:09 [info     ] micro_loop_started             agent=code_builder goal='Build AgentStudio per the plan' max_iterations=2
+2026-07-04 09:56:09 [debug    ] perceive_complete              agent=code_builder iteration=1
+2026-07-04 09:56:09 [debug    ] reason_complete                agent=code_builder iteration=1
+2026-07-04 09:56:09 [debug    ] provider_skipped               provider=gemini reason=rate_limited_or_exhausted
+2026-07-04 09:56:11 [info     ] llm_request_success            model=llama-3.3-70b-versatile provider=groq-smart tokens=997
+2026-07-04 09:56:11 [debug    ] provider_skipped               provider=gemini reason=rate_limited_or_exhausted
+2026-07-04 09:56:12 [info     ] llm_request_success            model=llama-3.3-70b-versatile provider=groq-smart tokens=1046
+2026-07-04 09:56:12 [debug    ] provider_skipped               provider=gemini reason=rate_limited_or_exhausted
+2026-07-04 09:56:14 [info     ] llm_request_success            model=llama-3.3-70b-versatile provider=groq-smart tokens=1249
+2026-07-04 09:56:14 [debug    ] provider_skipped               provider=gemini reason=rate_limited_or_exhausted
+2026-07-04 09:56:14 [warning  ] provider_rate_limited          cooldown_seconds=420.0 provider=groq-smart status=429
+2026-07-04 09:56:42 [info     ] llm_request_success            model=nvidia/llama-3.3-nemotron-super-49b-v1 provider=nvidia-nemotron tokens=1330
+2026-07-04 09:56:43 [warning  ] provider_rate_limited          cooldown_seconds=60.0 provider=gemini status=429
+2026-07-04 09:56:43 [debug    ] provider_skipped               provider=groq-smart reason=rate_limited_or_exhausted
+2026-07-04 09:56:58 [info     ] llm_request_success            model=nvidia/llama-3.3-nemotron-super-49b-v1 provider=nvidia-nemotron tokens=1034
+2026-07-04 09:56:58 [debug    ] provider_skipped               provider=gemini reason=rate_limited_or_exhausted
+2026-07-04 09:56:58 [debug    ] provider_skipped               provider=groq-smart reason=rate_limited_or_exhausted
+2026-07-04 09:57:15 [info     ] llm_request_success            model=nvidia/llama-3.3-nemotron-super-49b-v1 provider=nvidia-nemotron tokens=1022
+2026-07-04 09:57:15 [debug    ] provider_skipped               provider=gemini reason=rate_limited_or_exhausted
+2026-07-04 09:57:15 [debug    ] provider_skipped               provider=groq-smart reason=rate_limited_or_exhausted
+2026-07-04 09:57:36 [info     ] llm_request_success            model=nvidia/llama-3.3-nemotron-super-49b-v1 provider=nvidia-nemotron tokens=1192
+2026-07-04 09:57:36 [debug    ] provider_skipped               provider=gemini reason=rate_limited_or_exhausted
+2026-07-04 09:57:36 [debug    ] provider_skipped               provider=groq-smart reason=rate_limited_or_exhausted
+2026-07-04 09:58:02 [info     ] llm_request_success            model=nvidia/llama-3.3-nemotron-super-49b-v1 provider=nvidia-nemotron tokens=1193
+2026-07-04 09:58:07 [info     ] code_refine                    name=AgentStudio round=1
+2026-07-04 09:58:08 [warning  ] provider_rate_limited          cooldown_seconds=60.0 provider=gemini status=429
+2026-07-04 09:58:08 [debug    ] provider_skipped               provider=groq-smart reason=rate_limited_or_exhausted
+2026-07-04 10:00:13 [info     ] llm_request_success            model=nvidia/llama-3.3-nemotron-super-49b-v1 provider=nvidia-nemotron tokens=1807
+2026-07-04 10:00:18 [info     ] code_built                     agent=code_builder files=8 name=AgentStudio sandbox_ok=True
+2026-07-04 10:00:18 [debug    ] act_complete                   agent=code_builder iteration=1
+2026-07-04 10:00:18 [info     ] verify_complete                agent=code_builder complete=True iteration=1 score=95.0
+2026-07-04 10:00:18 [info     ] micro_loop_success             agent=code_builder duration=248.74649381637573 iterations=1
+2026-07-04 10:00:18 [info     ] micro_loop_started             agent=product_critic goal='Validate the built product' max_iterations=2
+2026-07-04 10:00:18 [debug    ] perceive_complete              agent=product_critic iteration=1
+2026-07-04 10:00:18 [debug    ] reason_complete                agent=product_critic iteration=1

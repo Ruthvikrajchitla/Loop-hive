@@ -52,7 +52,7 @@ async def publish_repo(name: str, files: dict[str, str], description: str = "") 
 
             create = await client.post(create_url, headers=headers, json={
                 "name": repo,
-                "description": (description or "Built autonomously by LoopHive")[:300],
+                "description": (description or f"Built autonomously by {os.getenv('BRAND_NAME', 'Otto')}")[:300],
                 "private": False,
                 "auto_init": False,
                 "has_issues": True,
