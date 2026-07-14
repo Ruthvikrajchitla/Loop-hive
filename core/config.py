@@ -336,9 +336,9 @@ class AppConfig:
                 name="cerebras",
                 api_key=cerebras_key,
                 base_url="https://api.cerebras.ai/v1",
-                model="gpt-oss-120b",
+                model=os.getenv("CEREBRAS_MODEL", "gpt-oss-120b"),
                 max_rpm=5,
-                max_rpd=500,
+                max_rpd=2400,
                 max_tpm=30000,
                 priority=5,
             ))
