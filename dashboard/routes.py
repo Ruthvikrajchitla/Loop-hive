@@ -385,6 +385,16 @@ async def get_activity(request: Request):
     )
 
 
+@router.get("/jobs")
+async def get_jobs(request: Request):
+    """Otto's memory — active and recent jobs and the stage each is at."""
+    from core.jobs import list_recent
+    jobs = await list_recent(40)
+    for j in jobs:
+        j["active"] = j.get("stage") not in ("done", "failed")
+    return templates.TemplateResponse(request=request, name="jobs.html", context={"jobs": jobs})
+
+
 @router.get("/notifications")
 async def get_notifications(request: Request):
     """Boss inbox — escalations. Viewing marks them read."""

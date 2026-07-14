@@ -194,6 +194,36 @@ class Outreach(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
+class Job(Base):
+    """A resumable unit of work — Otto's memory. Persists stage + intermediate
+    outputs so an interrupted build/research/client task is picked back up."""
+    __tablename__ = "jobs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    kind = Column(String(30), default="own_product")   # own_product, client, boss_task
+    request = Column(Text, default="")                  # the ask (client brief / boss instruction)
+    target_stage = Column(String(20), default="full")   # how far to go: research, plan, build, full
+    stage = Column(String(20), default="analyze")        # analyze,research,plan,build,review,ship,market,deliver,done,failed
+
+    product_name = Column(String(300), default="")
+    build_type = Column(String(60), default="developer tool")
+    market_brief = Column(Text, default="")
+    research_report = Column(Text, default="")
+    plan = Column(Text, default="")                      # JSON
+    files = Column(Text, default="")                     # JSON dict path->content
+    feedback = Column(Text, default="")                  # latest critic feedback
+    round = Column(Integer, default=0)
+    production_ready = Column(Boolean, default=False)
+
+    requester_email = Column(String(300), nullable=True)
+    result_url = Column(String(500), nullable=True)
+    delivered = Column(Boolean, default=False)
+    error = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+
 class Artifact(Base):
     """Any concrete piece of work an agent produced — so it's fully viewable."""
     __tablename__ = "artifacts"

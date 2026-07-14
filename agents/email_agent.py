@@ -79,6 +79,11 @@ class EmailAgent(AgentBase):
         body = msg.get("body", "")
         message_id = msg.get("message_id", "")
 
+        # Boss task: route it into the build pipeline as a Job, then acknowledge.
+        if config.boss_email and sender == config.boss_email.lower():
+            await self._handle_boss_task(subject, body, message_id, counts)
+            return
+
         # Deterministic opt-out + suppression check first.
         is_stop = body.strip().upper().startswith("STOP") or "unsubscribe" in body.lower()
         if sender in suppressed or is_stop:
@@ -131,6 +136,37 @@ class EmailAgent(AgentBase):
                 counts["replied"] += 1
 
         await self._save(sender, subject, body, intent, summary, reply, status)
+
+    async def _handle_boss_task(self, subject: str, body: str, message_id: str, counts: dict) -> None:
+        """The boss emailed a task → queue it as a Job for the build team, then reply."""
+        from core.jobs import create_job
+        cls = await self.ask_llm_json(
+            f"The boss sent this task. Decide how far to take it: 'research' (just research + report), "
+            f"'plan' (research + a build plan), 'build' (build it), or 'full' (build + ship).\n\n"
+            f"SUBJECT: {subject}\nBODY:\n{body[:3000]}\n\n"
+            f"Output JSON: {{'target_stage': 'research|plan|build|full', 'product_name': str, "
+            f"'task': str (a clear one-paragraph restatement of exactly what to do)}}",
+            temperature=0.2, max_tokens=600,
+        )
+        target = cls.get("target_stage", "full")
+        if target not in ("research", "plan", "build", "full"):
+            target = "full"
+        task = cls.get("task") or f"{subject}. {body[:500]}"
+        job = await create_job(
+            kind="boss_task", request=task, target_stage=target,
+            product_name=(cls.get("product_name") or subject)[:200],
+            requester_email=config.boss_email, stage="analyze",
+        )
+        jid = job["id"] if job else "?"
+        reply = (f"On it, boss. Queued as a '{target}' task (job #{jid}) — the team is starting now. "
+                 f"I'll email you the {'report' if target in ('research', 'plan') else 'result'} when it's ready.")
+        if config.email_auto_reply:
+            from publishers.email_sender import send_email
+            await send_email(config.boss_email, f"Re: {subject}", reply, in_reply_to=message_id)
+        await self._save(config.boss_email, subject, body, "boss_task",
+                         f"Queued job #{jid} (target={target}): {task[:200]}", reply, "actioned")
+        counts["actioned"] = counts.get("actioned", 0) + 1
+        logger.info("boss_task_queued", job=jid, target=target)
 
     async def _fulfill_build(self, cls: dict, body: str) -> tuple[str, str]:
         """Actually build what the sender asked for and compose a reply about it."""

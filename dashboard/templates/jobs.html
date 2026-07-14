@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}Jobs | LoopHive{% endblock %}
+{% block page_title %}🧠 Otto's Memory — Jobs{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h3>Work queue & history</h3>
+        <span class="badge gray">resumes after interruptions</span>
+    </div>
+    <table class="data-table">
+        <thead>
+            <tr><th>#</th><th>Kind</th><th>Product / Task</th><th>Stage</th><th>Target</th><th>Ready</th><th>Repo</th></tr>
+        </thead>
+        <tbody>
+            {% for j in jobs %}
+            <tr>
+                <td>{{ j.id }}</td>
+                <td><span class="badge {% if j.kind == 'boss_task' %}red{% elif j.kind == 'client' %}blue{% else %}purple{% endif %}">{{ j.kind }}</span></td>
+                <td>
+                    <strong>{{ j.product_name or '—' }}</strong>
+                    {% if j.request %}<details><summary class="btn-link">task</summary><pre style="white-space:pre-wrap;font-size:0.8rem;">{{ j.request }}</pre></details>{% endif %}
+                </td>
+                <td><span class="badge {% if j.active %}yellow{% elif j.stage == 'failed' %}red{% else %}green{% endif %}">{{ j.stage }}</span></td>
+                <td>{{ j.target_stage }}</td>
+                <td>{{ '✅' if j.production_ready else '—' }}</td>
+                <td>{% if j.result_url %}<a href="{{ j.result_url }}" target="_blank" class="btn-link">↗</a>{% else %}—{% endif %}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="empty-state">No jobs yet. Otto creates one each cycle (or when you email a task).</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

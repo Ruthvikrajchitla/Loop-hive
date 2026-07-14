@@ -18,6 +18,7 @@ import structlog
 
 from core.artifacts import log_artifact
 from core.config import config
+from core.jobs import get_active_job, create_job, save_job
 from core.llm_router import llm_router
 from core.loop_engine import ContextWindow, MicroLoop
 from core.notify import escalate
@@ -136,6 +137,147 @@ class ProductOrchestrator:
                            f"Phase {phase}. Built {len(files)} files but the Critic did not pass it after "
                            f"{rnd} rounds. Latest feedback:\n{feedback[:1000]}", source="product_critic")
         return report
+
+    # -------------------------------------------------------------------
+    # Resumable, memory-backed execution (survives interruptions)
+    # -------------------------------------------------------------------
+
+    async def run_next(self) -> dict:
+        """Resume the active job or start a new own-product job, advancing it
+        stage by stage and checkpointing to the DB after each stage."""
+        job = await get_active_job()
+        if not job:
+            job = await create_job(kind="own_product", target_stage="full", stage="analyze")
+        if not job:
+            return {"error": "could not create a job"}
+
+        logger.info("job_resume", id=job["id"], kind=job["kind"], stage=job["stage"])
+        guard = 0
+        while job["stage"] not in ("done", "failed") and guard < 14:
+            guard += 1
+            try:
+                await self._execute_stage(job)
+            except Exception as e:
+                job["stage"], job["error"] = "failed", str(e)[:500]
+                await save_job(job)
+                await escalate("Job failed",
+                               f"Job {job['id']} ({job['kind']}) failed at stage: {str(e)[:400]}",
+                               source="product_orchestrator")
+                break
+            await save_job(job)  # ← memory checkpoint after every stage
+        return {"job_id": job["id"], "kind": job["kind"], "stage": job["stage"],
+                "product": job.get("product_name"), "repo": job.get("result_url"),
+                "ready": job.get("production_ready")}
+
+    async def _execute_stage(self, job: dict) -> None:
+        stage = job["stage"]
+        niche = config.forced_niche or "AI developer tools"
+
+        if stage == "analyze":
+            if job["kind"] == "own_product":
+                a = await self.micro.run(self.analyzer, "Analyze the market and pick a product to build")
+                ao = a.output if isinstance(a.output, dict) else {}
+                job["product_name"] = ao.get("product_name", "New Tool")
+                job["request"] = ao.get("product_idea", job["product_name"])
+                job["build_type"] = ao.get("build_type", "developer tool")
+                job["market_brief"] = ao.get("market_report", "")
+                if job["market_brief"]:
+                    await log_artifact("analyzer_agent", "market_brief", job["product_name"], job["market_brief"])
+            else:
+                job["product_name"] = job.get("product_name") or (job["request"][:60] or "Client build")
+                job["market_brief"] = f"Request: {job['request']}"
+            job["stage"] = "research"
+
+        elif stage == "research":
+            rctx = ContextWindow()
+            rctx.add("system", f"niche: {niche}\ntopic: {job['request']}")
+            r = await self.micro.run(self.researcher, f"Research: {job['request']}", context=rctx)
+            job["research_report"] = r.output.get("report", "") if isinstance(r.output, dict) else ""
+            if job["research_report"]:
+                await log_artifact("research_agent", "research_brief", job["product_name"], job["research_report"])
+            job["stage"] = "deliver" if (job["kind"] == "boss_task" and job["target_stage"] == "research") else "plan"
+
+        elif stage == "plan":
+            pctx = ContextWindow()
+            pctx.add("system", f"product_name: {job['product_name']}\nproduct_idea: {job['request']}\nbuild_type: {job['build_type']}")
+            pctx.add("system", f"MARKET BRIEF\n{job['market_brief']}")
+            pctx.add("system", f"RESEARCH BRIEF\n{job['research_report']}")
+            p = await self.micro.run(self.planner, "Plan the product build", context=pctx)
+            planj = p.output if isinstance(p.output, dict) else {}
+            if not planj.get("files"):
+                job["stage"], job["error"] = "failed", "planner produced no plan"
+                return
+            job["plan"] = json.dumps(planj)
+            if planj.get("build_type"):
+                job["build_type"] = planj["build_type"]
+            await log_artifact("planner_agent", "build_plan", job["product_name"], job["plan"][:8000])
+            job["stage"] = "deliver" if (job["kind"] == "boss_task" and job["target_stage"] == "plan") else "build"
+
+        elif stage == "build":
+            bctx = ContextWindow()
+            bctx.add("system", f"PLAN: {job['plan']}")
+            if job["feedback"]:
+                bctx.add("system", f"CRITIC FEEDBACK: {job['feedback']}")
+            b = await self.build_loop.run(self.builder, f"Build {job['product_name']} per the plan", context=bctx)
+            if isinstance(b.output, dict) and b.output.get("files"):
+                job["files"] = json.dumps(b.output["files"])
+            job["round"] = (job.get("round") or 0) + 1
+            job["stage"] = "review"
+
+        elif stage == "review":
+            cctx = ContextWindow()
+            cctx.add("system", f"PLAN: {job['plan']}")
+            cctx.add("system", f"FILES: {job['files']}")
+            c = await self.micro.run(self.critic, "Validate the built product", context=cctx)
+            review = c.output if isinstance(c.output, dict) else {}
+            job["production_ready"] = bool(review.get("production_ready"))
+            if job["production_ready"] or (job.get("round") or 0) >= config.build_rounds:
+                job["stage"] = "ship"
+            else:
+                job["feedback"] = review.get("feedback", "")
+                job["stage"] = "build"
+
+        elif stage == "ship":
+            files = json.loads(job["files"]) if job["files"] else {}
+            planj = json.loads(job["plan"]) if job["plan"] else {}
+            job["result_url"] = await self._ship(job["product_name"], files, planj.get("description", ""),
+                                                 job["build_type"], job["kind"], job["production_ready"])
+            job["stage"] = "market" if job["kind"] == "own_product" else "deliver"
+
+        elif stage == "market":
+            files = json.loads(job["files"]) if job["files"] else {}
+            if files:
+                await self._market(job["product_name"], job["request"], job["result_url"], {})
+            job["stage"] = "done"
+
+        elif stage == "deliver":
+            await self._deliver(job)
+            job["stage"] = "done"
+
+    async def _deliver(self, job: dict) -> None:
+        """Email the requester (boss or client) the result at the requested depth."""
+        to = job.get("requester_email") or config.boss_email
+        if not to:
+            job["delivered"] = True
+            return
+        name = job.get("product_name", "your task")
+        ts = job.get("target_stage", "full")
+        if ts == "research":
+            subject = f"Research report: {name}"
+            body = (f"Hi,\n\nHere's the research you asked for on \"{job['request']}\":\n\n"
+                    f"{job['research_report'][:8000]}\n\n— {config.brand_name}")
+        elif ts == "plan":
+            subject = f"Build plan: {name}"
+            body = (f"Hi,\n\nHere's the plan for \"{job['request']}\":\n\n{job['plan'][:8000]}\n\n— {config.brand_name}")
+        else:
+            link = f"\n\nRepo: {job['result_url']}" if job.get("result_url") else ""
+            status = "production-ready" if job.get("production_ready") else "an early version I'll keep improving"
+            body = (f"Hi,\n\nI finished \"{name}\" ({status}) for your request: {job['request']}.{link}\n\n"
+                    f"Reply with any changes and I'll iterate.\n\n— {config.brand_name}")
+        from publishers.email_sender import send_email
+        await send_email(to, subject, body)
+        job["delivered"] = True
+        logger.info("job_delivered", id=job["id"], to=to, target=ts)
 
     async def _ship(self, name, files, description, build_type, phase, ready) -> str | None:
         repo_url = None

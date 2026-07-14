@@ -271,22 +271,19 @@ async def run_swarm(continuous: bool = True, interval: float | None = None) -> N
         logger.info("swarm_cycle_start", cycle=cycle)
 
         if config.product_mode:
-            # Product-building agency: half the day builds our own product, the
-            # other half builds for real clients (found via outreach).
+            # Memory-backed: resume the active job, or start new work. Boss tasks
+            # jump the queue; afternoons seed a client job when idle.
             import datetime as _dt
-            hour = _dt.datetime.utcnow().hour
-            phase = "client" if (config.client_work_enabled and hour >= 12) else "own"
-            client_brief = client_email = None
-            if phase == "client":
-                client_brief, client_email = await _find_client_brief(niche_name)
-                if not client_brief:
-                    phase = "own"
-            report = await product_orch.run_cycle(phase=phase, client_brief=client_brief, client_email=client_email)
-            print(f"\n[LoopHive] Cycle {cycle} — phase={phase}")
-            print(f"  Product:  {report.get('product_name')} ({report.get('build_type')})")
-            print(f"  Built:    {report.get('planned_files', 0)} planned files · "
-                  f"production_ready={report.get('production_ready')} (critic {report.get('critic_score', 0)})")
-            print(f"  Repo:     {report.get('repo_url') or '—'}")
+            from core.jobs import get_active_job, create_job
+            if config.client_work_enabled and _dt.datetime.utcnow().hour >= 12:
+                if not await get_active_job():
+                    brief, email = await _find_client_brief(niche_name)
+                    if brief:
+                        await create_job(kind="client", request=brief, requester_email=email,
+                                         target_stage="full", stage="analyze")
+            report = await product_orch.run_next()
+            print(f"\n[LoopHive] Cycle {cycle} — job {report.get('job_id')} [{report.get('kind')}] stage={report.get('stage')}")
+            print(f"  Product:  {report.get('product')} | ready={report.get('ready')} | repo={report.get('repo') or '—'}")
         else:
             res = await micro.run(orchestrator, "Run E2E pipeline for autonomous monetization")
             report = res.output if isinstance(res.output, dict) else {}
