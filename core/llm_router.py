@@ -146,6 +146,34 @@ class LLMRouter:
         ordered = sorted(self.providers, key=lambda p: (0 if p.quality else 1, p.priority))
         return [p.name for p in ordered if p.quality and self.usage[p.name].can_make_request(p)]
 
+    def all_quality_provider_names(self) -> list[str]:
+        """ALL quality-capable providers, best-first, regardless of momentary rate limits
+        (MoA waits for them rather than skipping — never compromise the model set)."""
+        ordered = sorted(self.providers, key=lambda p: (0 if p.quality else 1, p.priority))
+        return [p.name for p in ordered if p.quality]
+
+    async def generate_waited(self, provider_name: str, messages: list[dict], max_wait: float = 300.0, **kw) -> dict:
+        """Generate on a specific provider, WAITING out per-minute rate limits (up to
+        max_wait). Raises if the provider is daily-exhausted or the wait is exceeded —
+        so fusion drops a model only when it truly can't be used today, never for a
+        transient cooldown."""
+        provider = next((p for p in self.providers if p.name == provider_name), None)
+        if provider is None:
+            raise RuntimeError(f"Unknown provider '{provider_name}'")
+        usage = self.usage[provider_name]
+        waited = 0.0
+        while True:
+            wait = usage.seconds_until_available(provider)
+            if wait <= 0:
+                break
+            if wait == float("inf") or waited >= max_wait:
+                raise RuntimeError(f"{provider_name} unavailable (daily limit or wait exceeded)")
+            sleep_for = min(wait, max_wait - waited) + 0.5
+            logger.info("fusion_wait_for_model", provider=provider_name, seconds=round(sleep_for, 1))
+            await asyncio.sleep(sleep_for)
+            waited += sleep_for
+        return await self.generate(messages=messages, only_provider=provider_name, **kw)
+
     async def close(self):
         if self._client and not self._client.is_closed:
             await self._client.aclose()

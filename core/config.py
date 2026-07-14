@@ -108,7 +108,7 @@ class AppConfig:
         default_factory=lambda: int(os.getenv("RESEARCH_MAX_SOURCES", "8"))
     )
     research_rounds: int = field(  # iterative deep-research passes (find gaps → dig deeper)
-        default_factory=lambda: int(os.getenv("RESEARCH_ROUNDS", "3"))
+        default_factory=lambda: int(os.getenv("RESEARCH_ROUNDS", "5"))
     )
 
     # Mixture-of-Agents "fusion" writing — several models draft, an aggregator fuses.
@@ -120,6 +120,17 @@ class AppConfig:
     )
     fusion_aggregator: str = field(  # provider name that fuses the drafts ("" = auto)
         default_factory=lambda: os.getenv("FUSION_AGGREGATOR", "nvidia-ultra")
+    )
+    # Never compromise MoA: if a model is rate-limited, WAIT for it to refresh (up to
+    # the max) rather than skipping it — so every model always contributes to fusion.
+    fusion_wait: bool = field(
+        default_factory=lambda: os.getenv("FUSION_WAIT", "true").lower() in ("1", "true", "yes")
+    )
+    fusion_max_wait: int = field(
+        default_factory=lambda: int(os.getenv("FUSION_MAX_WAIT_SECONDS", "300"))
+    )
+    fusion_all_models: bool = field(  # use ALL quality models as proposers (not just N)
+        default_factory=lambda: os.getenv("FUSION_ALL_MODELS", "true").lower() in ("1", "true", "yes")
     )
     # Final editorial pass — the premium model that produces the FINAL product draft.
     finalize_enabled: bool = field(
@@ -133,8 +144,11 @@ class AppConfig:
     product_mode: bool = field(  # product-building is the primary flow (vs. content/ebooks)
         default_factory=lambda: os.getenv("PRODUCT_MODE", "true").lower() in ("1", "true", "yes")
     )
-    build_rounds: int = field(  # Builder <-> Critic validation loops before shipping
-        default_factory=lambda: int(os.getenv("BUILD_ROUNDS", "3"))
+    build_rounds: int = field(  # max Builder <-> Critic iterations to reach production-ready
+        default_factory=lambda: int(os.getenv("BUILD_ROUNDS", "12"))
+    )
+    build_rounds_per_cycle: int = field(  # how many rounds to do per swarm cycle (job resumes)
+        default_factory=lambda: int(os.getenv("BUILD_ROUNDS_PER_CYCLE", "3"))
     )
     client_work_enabled: bool = field(  # second half of the day: build for real clients
         default_factory=lambda: os.getenv("CLIENT_WORK_ENABLED", "true").lower() in ("1", "true", "yes")
@@ -157,8 +171,8 @@ class AppConfig:
     # Real execution sandbox: create a venv, pip install, import every module, run
     # tests. Catches fabricated imports / bad deps / import-time crashes. Slower +
     # needs network — enable on the deployed VM (EXECUTION_SANDBOX=true).
-    execution_sandbox: bool = field(
-        default_factory=lambda: os.getenv("EXECUTION_SANDBOX", "false").lower() in ("1", "true", "yes")
+    execution_sandbox: bool = field(  # ship ONLY after a real venv+install+import+test pass
+        default_factory=lambda: os.getenv("EXECUTION_SANDBOX", "true").lower() in ("1", "true", "yes")
     )
     sandbox_install_timeout: int = field(
         default_factory=lambda: int(os.getenv("SANDBOX_INSTALL_TIMEOUT", "300"))
@@ -205,8 +219,8 @@ class AppConfig:
     max_daily_articles: int = field(
         default_factory=lambda: int(os.getenv("MAX_DAILY_ARTICLES", "5"))
     )
-    max_daily_products: int = field(
-        default_factory=lambda: int(os.getenv("MAX_DAILY_PRODUCTS", "2"))
+    max_daily_products: int = field(  # 1 deeply-perfected product per day
+        default_factory=lambda: int(os.getenv("MAX_DAILY_PRODUCTS", "1"))
     )
     max_weekly_products: int = field(
         default_factory=lambda: int(os.getenv("MAX_WEEKLY_PRODUCTS", "1"))

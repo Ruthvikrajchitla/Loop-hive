@@ -74,6 +74,20 @@ class PlannerAgent(AgentBase):
             f"- 'acceptance_criteria': [str]  (testable checks that define 'done')",
             temperature=0.4, max_tokens=3000,
         )
+        # Refinement pass — critique and strengthen the plan before building.
+        if isinstance(spec, dict) and spec.get("files"):
+            import json
+            refined = await self.ask_llm_json(
+                f"Critique this draft product plan and return an IMPROVED version in the SAME JSON schema. "
+                f"Ensure: the file list is complete and self-consistent (every module a test imports is "
+                f"itself a file in the list); imports will resolve to stdlib, a listed dependency, or a "
+                f"project file; dependencies use correct PyPI names and no stdlib modules; features are "
+                f"concrete and buildable; acceptance criteria are specific and testable; scope is shippable "
+                f"in one focused build.\n\nDRAFT PLAN:\n{json.dumps(spec)[:8000]}",
+                temperature=0.3, max_tokens=3000,
+            )
+            if isinstance(refined, dict) and refined.get("files"):
+                spec = refined
         self.mark_success({"product": spec.get("product_name"), "files": len(spec.get("files", []))})
         return spec
 

@@ -129,8 +129,8 @@ class DeepResearchAgent(AgentBase):
                 if not queries:
                     break
 
-        # Final comprehensive, decision-ready report.
-        report = await self.ask_llm(
+        # Final comprehensive, decision-ready report — fused across all models (MoA).
+        report = await self.ask_llm_fused(
             f"Write the FINAL, comprehensive research report on '{topic}' (niche: {niche}) from the notes "
             f"below. Markdown sections: ## Overview ## Key Facts & Numbers ## Current State (2026) "
             f"## Tools & Real Examples ## User Pain Points & Unmet Needs ## How the Best Solutions Work "

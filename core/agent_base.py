@@ -188,28 +188,32 @@ class AgentBase(ABC):
         if not config.fusion_enabled:
             return await self.ask_llm(prompt, temperature=temperature, max_tokens=max_tokens)
 
-        names = self.router.quality_provider_names()
-        aggregator = config.fusion_aggregator if config.fusion_aggregator in names else (names[0] if names else None)
-        # Proposers = distinct quality models, excluding the aggregator.
-        proposers = [n for n in names if n != aggregator][: max(2, config.fusion_proposers)]
-
-        if len(proposers) < 2:
+        # Use ALL quality models (waiting out rate limits) so MoA is never compromised.
+        names = (self.router.all_quality_provider_names() if config.fusion_all_models
+                 else self.router.quality_provider_names())
+        if not names:
             return await self.ask_llm(prompt, temperature=temperature, max_tokens=max_tokens)
+        aggregator = config.fusion_aggregator if config.fusion_aggregator in names else names[0]
+        proposers = [n for n in names if n != aggregator]
+        if not config.fusion_all_models:
+            proposers = proposers[: max(2, config.fusion_proposers)]
 
-        # 1. Gather independent drafts.
+        async def _call(pname: str, msgs: list[dict], temp: float) -> dict:
+            if config.fusion_wait:
+                return await self.router.generate_waited(
+                    pname, msgs, max_wait=config.fusion_max_wait,
+                    temperature=temp, max_tokens=max_tokens, task_type=self.name)
+            return await self.router.generate(
+                messages=msgs, temperature=temp, max_tokens=max_tokens,
+                task_type=self.name, only_provider=pname)
+
+        sys_msg = {"role": "system", "content": self._system()}
+
+        # 1. Gather independent drafts — every model contributes (waits if rate-limited).
         drafts: list[str] = []
         for pname in proposers:
             try:
-                result = await self.router.generate(
-                    messages=[
-                        {"role": "system", "content": self._system()},
-                        {"role": "user", "content": prompt},
-                    ],
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    task_type=self.name,
-                    only_provider=pname,
-                )
+                result = await _call(pname, [sys_msg, {"role": "user", "content": prompt}], temperature)
                 self.state.total_tokens_used += result.get("tokens_used", 0)
                 text = (result.get("content") or "").strip()
                 if len(text) > 200:
@@ -232,16 +236,7 @@ class AgentBase(ABC):
             f"ORIGINAL TASK:\n{prompt[:2500]}\n\n{drafts_block[:24000]}"
         )
         try:
-            result = await self.router.generate(
-                messages=[
-                    {"role": "system", "content": self._system()},
-                    {"role": "user", "content": fuse_prompt},
-                ],
-                temperature=0.4,
-                max_tokens=max_tokens,
-                task_type=self.name,
-                only_provider=aggregator,
-            )
+            result = await _call(aggregator, [sys_msg, {"role": "user", "content": fuse_prompt}], 0.4)
             self.state.total_tokens_used += result.get("tokens_used", 0)
             fused = (result.get("content") or "").strip()
             self.logger.info("fusion_complete", proposers=len(drafts), aggregator=aggregator, chars=len(fused))

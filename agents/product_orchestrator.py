@@ -153,8 +153,16 @@ class ProductOrchestrator:
 
         logger.info("job_resume", id=job["id"], kind=job["kind"], stage=job["stage"])
         guard = 0
-        while job["stage"] not in ("done", "failed") and guard < 14:
+        builds_this_cycle = 0
+        while job["stage"] not in ("done", "failed") and guard < 30:
             guard += 1
+            # Bound build↔review iterations per swarm cycle; the job resumes next cycle,
+            # so one product is refined across the whole day (with dashboard checkpoints).
+            if job["stage"] == "build":
+                builds_this_cycle += 1
+                if builds_this_cycle > config.build_rounds_per_cycle:
+                    logger.info("job_yields", id=job["id"], round=job.get("round"), reason="cycle build budget")
+                    break
             try:
                 await self._execute_stage(job)
             except Exception as e:
@@ -231,11 +239,20 @@ class ProductOrchestrator:
             c = await self.micro.run(self.critic, "Validate the built product", context=cctx)
             review = c.output if isinstance(c.output, dict) else {}
             job["production_ready"] = bool(review.get("production_ready"))
-            if job["production_ready"] or (job.get("round") or 0) >= config.build_rounds:
-                job["stage"] = "ship"
+            if job["production_ready"]:
+                job["stage"] = "ship"  # ship ONLY when it truly passes (real sandbox + criteria)
+            elif (job.get("round") or 0) >= config.build_rounds:
+                # Iterated to the budget without perfection — escalate, do NOT ship broken.
+                job["stage"], job["error"] = "failed", "Not production-ready after max build rounds."
+                await escalate(
+                    f"Product needs your input: {job.get('product_name')}",
+                    f"After {job.get('round')} build↔critic rounds it still isn't production-ready. "
+                    f"I won't ship something broken. Latest issues:\n{review.get('feedback', '')[:1500]}",
+                    source="product_critic",
+                )
             else:
                 job["feedback"] = review.get("feedback", "")
-                job["stage"] = "build"
+                job["stage"] = "build"  # keep iterating
 
         elif stage == "ship":
             files = json.loads(job["files"]) if job["files"] else {}

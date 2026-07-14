@@ -154,7 +154,9 @@ class CodeBuilderAgent(AgentBase):
             "- NEVER run work at import time (no servers, loops, or heavy calls at module top level). Put "
             "runnable entry points under `if __name__ == '__main__':` or inside functions.\n"
             "- Complete, runnable code with real logic and error handling. No placeholders, stubs, or TODOs.\n"
-            "- Only claim in docs what the code actually does — no invented metrics or unimplemented features."
+            "- Only claim in docs what the code actually does — no invented metrics, benchmarks, or "
+            "unimplemented features, and no fake contact emails, support URLs, or testimonials. The README "
+            "must describe the real, working product honestly."
         )
 
         files: dict[str, str] = {}
