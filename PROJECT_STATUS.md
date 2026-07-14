@@ -154,17 +154,23 @@ The dashboard's background task runs the swarm (`RUN_SWARM_IN_DASHBOARD=true`) O
 
 ```
 PRODUCT_MODE=true            # product pipeline (vs legacy content)
-BUILD_ROUNDS=4               # builder↔critic loops
-RESEARCH_ROUNDS=3            # deep-research passes
+BUILD_ROUNDS=12              # max builder↔critic iterations to reach production-ready
+BUILD_ROUNDS_PER_CYCLE=3     # rounds per swarm cycle (job resumes → refines all day)
+RESEARCH_ROUNDS=5            # deep-research passes (real minutes)
 RESEARCH_DEPTH=8  RESEARCH_MAX_SOURCES=16
 FUSION_ENABLED=true          # MoA (several models draft, aggregator fuses)
+FUSION_ALL_MODELS=true       # every quality model contributes
+FUSION_WAIT=true             # wait out rate limits, never drop a model (FUSION_MAX_WAIT_SECONDS=300)
 FUSION_AGGREGATOR=nvidia-ultra   FINALIZE_PROVIDER=nvidia-ultra (550B)
-EXECUTION_SANDBOX=false      # ← set TRUE on the VM for real venv/install/import/test validation
+EXECUTION_SANDBOX=true        # ship ONLY after real venv/install/import/test pass
+MAX_DAILY_PRODUCTS=1          # one deeply-perfected product per day
 CLIENT_WORK_ENABLED=true     # afternoons build for clients
 EMAIL_ENABLED=true  EMAIL_AUTO_REPLY=false   # reads inbox; drafts unless auto-reply on
 OUTREACH_ENABLED=false  OUTREACH_DRY_RUN=true  # off + draft-only by default
 BRAND_NAME=Otto  BOSS_NAME=Ruthvik  BOSS_EMAIL=chruthvikraj@gmail.com
 ```
+> A product now iterates until it truly passes real tests (or Otto escalates instead of shipping
+> broken). Expect **hours** of deep work per product across the day, not minutes — that's intended.
 
 ---
 
