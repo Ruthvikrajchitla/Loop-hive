@@ -38,7 +38,7 @@ sudo netfilter-persistent save
 ssh -i /path/to/your-key ubuntu@YOUR_PUBLIC_IP
 
 sudo apt update
-sudo apt install -y python3-venv python3-pip git
+sudo apt install -y python3-venv python3-pip git nodejs   # nodejs = JS validation in the sandbox
 
 git clone https://github.com/Ruthvikrajchitla/Loop-hive.git
 cd Loop-hive
@@ -47,20 +47,21 @@ python3 -m venv .venv
 .venv/bin/pip install .
 ```
 
-## 4. Add your API keys
+## 4. Add your API keys (fastest: copy your working local .env)
 
+From YOUR LOCAL machine (a new terminal), copy your already-configured `.env` up:
 ```bash
-cp .env.example .env
-nano .env      # paste your GEMINI_API_KEY, GROQ_API_KEY, etc. (same keys as local)
+scp -i /path/to/your-key .env ubuntu@YOUR_PUBLIC_IP:~/Loop-hive/.env
 ```
+(Or on the VM: `cp .env.example .env && nano .env` and paste every key.)
 
-Useful knobs you can set in `.env`:
+Make sure these are set for the production deep-build behavior:
 ```
-MAX_DAILY_ARTICLES=5        # build until this many articles today, then idle
-MAX_DAILY_PRODUCTS=2        # build until this many products today, then idle
-SWARM_INTERVAL_SECONDS=3600 # gap between build cycles
-SWARM_IDLE_SECONDS=1800     # re-check interval once the daily target is met
-RUN_SWARM_IN_DASHBOARD=true # run the swarm inside the dashboard process
+EXECUTION_SANDBOX=true       # ship only after real venv+install+import+tests pass
+MAX_DAILY_PRODUCTS=1         # one deeply-perfected product per day
+BUILD_ROUNDS=12  RESEARCH_ROUNDS=5  FUSION_WAIT=true  FUSION_ALL_MODELS=true
+RUN_SWARM_IN_DASHBOARD=true  # run the swarm inside the dashboard process
+# DATABASE_URL default = SQLite on the VM disk → PERSISTS across restarts (memory survives)
 ```
 
 ## 5. Install the 24/7 service
