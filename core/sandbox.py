@@ -98,6 +98,18 @@ def _local_module_names(files: dict[str, str]) -> dict[str, str]:
     return mapping
 
 
+def strip_stdlib_reqs(requirements: str) -> str:
+    """Remove standard-library module names wrongly listed as pip dependencies."""
+    stdlib = getattr(sys, "stdlib_module_names", set())
+    kept = []
+    for line in (requirements or "").splitlines():
+        name = line.strip().split("==")[0].split(">=")[0].split("[")[0].split("~")[0].strip().lower().replace("-", "_")
+        if line.strip() and not line.strip().startswith("#") and name in stdlib:
+            continue  # drop stdlib module (not installable)
+        kept.append(line)
+    return "\n".join(kept)
+
+
 def _declared_packages(files: dict[str, str]) -> set[str]:
     reqs = files.get("requirements.txt", "") or ""
     pkgs = set()
@@ -133,6 +145,12 @@ def static_analysis(files: dict[str, str]) -> tuple[bool, str]:
     local = _local_module_names(files)
     declared = _declared_packages(files)
     stdlib = getattr(sys, "stdlib_module_names", set())
+
+    # requirements.txt must not list standard-library modules (pip can't install them).
+    for line in (files.get("requirements.txt", "") or "").splitlines():
+        nm = line.strip().split("==")[0].split(">=")[0].split("[")[0].split("~")[0].strip()
+        if nm and not nm.startswith("#") and nm.lower().replace("-", "_") in stdlib:
+            issues.append(f"requirements.txt: `{nm}` is a standard-library module — remove it (pip can't install it).")
 
     for path, content in files.items():
         if not path.endswith(".py"):

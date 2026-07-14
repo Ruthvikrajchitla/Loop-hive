@@ -20,7 +20,7 @@ import structlog
 from core.agent_base import AgentBase
 from core.config import config
 from core.loop_engine import ContextWindow, Verification
-from core.sandbox import validate
+from core.sandbox import validate, strip_stdlib_reqs
 
 logger = structlog.get_logger(__name__)
 
@@ -147,6 +147,8 @@ class CodeBuilderAgent(AgentBase):
             "functions, or import paths. If unsure a symbol exists, use the standard library instead.\n"
             "- Every import must resolve: standard library, a package listed in requirements.txt (use the "
             "correct PyPI name, e.g. 'haystack-ai' not 'haystack'), or another file in THIS project.\n"
+            "- requirements.txt lists ONLY third-party PyPI packages. NEVER put standard-library modules "
+            "(collections, os, json, argparse, re, typing, ...) in it — they aren't installable.\n"
             "- Files in this project: " + ", ".join(all_paths) + ". If a test imports a module, that module "
             "MUST be one of these files.\n"
             "- NEVER run work at import time (no servers, loops, or heavy calls at module top level). Put "
@@ -161,7 +163,7 @@ class CodeBuilderAgent(AgentBase):
             if not path:
                 continue
             if path == "requirements.txt":
-                files[path] = "\n".join(deps) + "\n"
+                files[path] = strip_stdlib_reqs("\n".join(deps)) + "\n"
                 continue
             # MoA fusion: several models draft the file, an aggregator fuses the best.
             code = await self.ask_llm_fused(
@@ -181,9 +183,17 @@ class CodeBuilderAgent(AgentBase):
         while not ok and rounds < config.code_refine_rounds:
             rounds += 1
             logger.info("code_refine", round=rounds, name=name, errors=log[:200])
-            for path in list(files):
-                if path not in log and path.rsplit("/", 1)[-1] not in log:
-                    continue
+            # Deterministically drop any stdlib names that slipped into requirements.
+            if "requirements.txt" in files:
+                files["requirements.txt"] = strip_stdlib_reqs(files["requirements.txt"]) + "\n"
+            # Files to fix = those named in the error; add requirements.txt for install/dep errors.
+            targets = [p for p in files if p in log or p.rsplit("/", 1)[-1] in log]
+            if "requirements.txt" in files and any(w in log for w in ("INSTALL", "requirement", "standard-library", "No module named")):
+                if "requirements.txt" not in targets:
+                    targets.append("requirements.txt")
+            if not targets:
+                targets = list(files)
+            for path in targets:
                 fixed = await self.ask_llm_fused(
                     f"This file failed validation. Fix it fully.\n\n{discipline}\n\n"
                     f"FILE: {path}\nPROJECT FILES: {', '.join(files)}\n\nCONTENT:\n{files[path]}\n\n"
