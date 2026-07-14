@@ -152,7 +152,16 @@ class AppConfig:
         default_factory=lambda: int(os.getenv("SANDBOX_TIMEOUT", "60"))
     )
     code_refine_rounds: int = field(  # self-heal loops when the sandbox reports errors
-        default_factory=lambda: int(os.getenv("CODE_REFINE_ROUNDS", "2"))
+        default_factory=lambda: int(os.getenv("CODE_REFINE_ROUNDS", "3"))
+    )
+    # Real execution sandbox: create a venv, pip install, import every module, run
+    # tests. Catches fabricated imports / bad deps / import-time crashes. Slower +
+    # needs network — enable on the deployed VM (EXECUTION_SANDBOX=true).
+    execution_sandbox: bool = field(
+        default_factory=lambda: os.getenv("EXECUTION_SANDBOX", "false").lower() in ("1", "true", "yes")
+    )
+    sandbox_install_timeout: int = field(
+        default_factory=lambda: int(os.getenv("SANDBOX_INSTALL_TIMEOUT", "300"))
     )
 
     # Outreach — ONE transparent, value-first message per day. Off + dry-run by

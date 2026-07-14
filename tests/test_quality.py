@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from core.text_clean import strip_ai_artifacts
-from core.sandbox import syntax_check
+from core.sandbox import syntax_check, static_analysis
 
 
 # --- AI footprint stripping -------------------------------------------------
@@ -52,6 +52,25 @@ def test_sandbox_flags_syntax_error():
 
 def test_sandbox_handles_no_python():
     ok, _ = syntax_check({"README.md": "# hello"})
+    assert ok
+
+
+def test_static_flags_import_time_side_effects():
+    ok, log = static_analysis({"m.py": "def go():\n    pass\ngo()\n"})
+    assert not ok and "import time" in log
+
+
+def test_static_flags_missing_local_module():
+    ok, log = static_analysis({"tests/t.py": "from nonexistent_pkg.sub import Foo\nassert Foo\n",
+                               "requirements.txt": "fastapi\n"})
+    assert not ok and "nonexistent_pkg" in log
+
+
+def test_static_passes_clean_code():
+    ok, _ = static_analysis({
+        "requirements.txt": "fastapi\n",
+        "app.py": "import logging\nfrom fastapi import FastAPI\nlogging.basicConfig()\napp = FastAPI()\n\ndef main():\n    pass\n",
+    })
     assert ok
 
 

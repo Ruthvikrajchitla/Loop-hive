@@ -20,7 +20,7 @@ import structlog
 from core.agent_base import AgentBase
 from core.config import config
 from core.loop_engine import ContextWindow, Verification
-from core.sandbox import syntax_check
+from core.sandbox import validate
 
 logger = structlog.get_logger(__name__)
 
@@ -140,6 +140,21 @@ class CodeBuilderAgent(AgentBase):
         if feedback:
             context_block += f"ADDRESS THIS REVIEWER FEEDBACK from the last round: {feedback}\n"
 
+        all_paths = [f.get("path") for f in file_specs if f.get("path")]
+        discipline = (
+            "STRICT ENGINEERING RULES:\n"
+            "- Use ONLY real, well-known library APIs you are certain exist. NEVER invent classes, "
+            "functions, or import paths. If unsure a symbol exists, use the standard library instead.\n"
+            "- Every import must resolve: standard library, a package listed in requirements.txt (use the "
+            "correct PyPI name, e.g. 'haystack-ai' not 'haystack'), or another file in THIS project.\n"
+            "- Files in this project: " + ", ".join(all_paths) + ". If a test imports a module, that module "
+            "MUST be one of these files.\n"
+            "- NEVER run work at import time (no servers, loops, or heavy calls at module top level). Put "
+            "runnable entry points under `if __name__ == '__main__':` or inside functions.\n"
+            "- Complete, runnable code with real logic and error handling. No placeholders, stubs, or TODOs.\n"
+            "- Only claim in docs what the code actually does — no invented metrics or unimplemented features."
+        )
+
         files: dict[str, str] = {}
         for fs in file_specs:
             path = fs.get("path")
@@ -148,34 +163,37 @@ class CodeBuilderAgent(AgentBase):
             if path == "requirements.txt":
                 files[path] = "\n".join(deps) + "\n"
                 continue
-            code = await self.ask_llm(
+            # MoA fusion: several models draft the file, an aggregator fuses the best.
+            code = await self.ask_llm_fused(
                 f"Project: {name} — {description}\n"
-                f"Declared dependencies: {', '.join(deps) or 'none'}\n"
-                f"{context_block}\n"
+                f"Declared dependencies (requirements.txt): {', '.join(deps) or 'none'}\n"
+                f"{context_block}\n{discipline}\n\n"
                 f"Write the COMPLETE contents of the file '{path}'. Purpose: {fs.get('purpose', '')}\n"
-                f"Rules: complete and runnable, real logic + error handling, no placeholders or TODOs. "
                 f"Output ONLY the raw file contents (no markdown fences, no commentary).",
                 temperature=0.3, max_tokens=4096,
             )
             files[path] = self._strip_fence(code)
 
-        # Sandbox + self-heal loop (any file type: py / json / js / html).
-        ok, log = syntax_check(files, timeout=config.sandbox_timeout)
+        # Full validation (syntax + static analysis + optional real execution) with self-heal.
+        ok, log = validate(files, timeout=config.sandbox_timeout,
+                           execution=config.execution_sandbox, install_timeout=config.sandbox_install_timeout)
         rounds = 0
         while not ok and rounds < config.code_refine_rounds:
             rounds += 1
-            logger.info("code_refine", round=rounds, name=name)
+            logger.info("code_refine", round=rounds, name=name, errors=log[:200])
             for path in list(files):
-                if path not in log:
+                if path not in log and path.rsplit("/", 1)[-1] not in log:
                     continue
-                fixed = await self.ask_llm(
-                    f"This file failed validation. Fix it.\n\nFILE: {path}\n\nCONTENT:\n{files[path]}\n\n"
+                fixed = await self.ask_llm_fused(
+                    f"This file failed validation. Fix it fully.\n\n{discipline}\n\n"
+                    f"FILE: {path}\nPROJECT FILES: {', '.join(files)}\n\nCONTENT:\n{files[path]}\n\n"
                     f"VALIDATION ERRORS:\n{log}\n\n"
                     f"Output ONLY the corrected raw file contents (no fences, no commentary).",
                     temperature=0.2, max_tokens=4096,
                 )
                 files[path] = self._strip_fence(fixed)
-            ok, log = syntax_check(files, timeout=config.sandbox_timeout)
+            ok, log = validate(files, timeout=config.sandbox_timeout,
+                              execution=config.execution_sandbox, install_timeout=config.sandbox_install_timeout)
 
         result = {
             "name": name,

@@ -17,7 +17,8 @@ import structlog
 
 from core.agent_base import AgentBase
 from core.loop_engine import ContextWindow, Verification
-from core.sandbox import syntax_check
+from core.config import config
+from core.sandbox import validate
 
 logger = structlog.get_logger(__name__)
 
@@ -66,7 +67,8 @@ class ProductCriticAgent(AgentBase):
             return {"production_ready": False, "score": 0, "issues": ["No files to review."],
                     "missing": [], "sandbox_ok": False, "feedback": "No product was built."}
 
-        sandbox_ok, sandbox_log = syntax_check(files)
+        sandbox_ok, sandbox_log = validate(files, execution=config.execution_sandbox,
+                                           install_timeout=config.sandbox_install_timeout)
         listing = "\n\n".join(f"### {p}\n{(c or '')[:2500]}" for p, c in list(files.items())[:12])[:22000]
 
         review = await self.ask_llm_json(
