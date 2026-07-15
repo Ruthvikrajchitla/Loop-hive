@@ -10,10 +10,14 @@ import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
 
+import base64
+import secrets
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 import uvicorn
 import structlog
 
@@ -38,6 +42,54 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class BasicAuthMiddleware(BaseHTTPMiddleware):
+    """Password-protect the dashboard when DASHBOARD_PASSWORD is set.
+
+    Uses HTTP Basic auth so it works from any browser with no login page to build.
+    If DASHBOARD_PASSWORD is unset/blank, the middleware is a no-op (open dashboard).
+    /health stays open so uptime checks don't need credentials.
+    """
+
+    def __init__(self, app, username: str, password: str):
+        super().__init__(app)
+        self._user = username
+        self._password = password
+
+    async def dispatch(self, request, call_next):
+        if request.url.path == "/health":
+            return await call_next(request)
+
+        header = request.headers.get("Authorization", "")
+        if header.startswith("Basic "):
+            try:
+                decoded = base64.b64decode(header[6:]).decode("utf-8")
+                user, _, pwd = decoded.partition(":")
+                if secrets.compare_digest(user, self._user) and secrets.compare_digest(
+                    pwd, self._password
+                ):
+                    return await call_next(request)
+            except Exception:
+                pass
+
+        return Response(
+            status_code=401,
+            headers={"WWW-Authenticate": 'Basic realm="Otto"'},
+            content="Authentication required.",
+        )
+
+
+_dash_password = os.getenv("DASHBOARD_PASSWORD", "").strip()
+if _dash_password:
+    app.add_middleware(
+        BasicAuthMiddleware,
+        username=os.getenv("DASHBOARD_USER", "otto").strip() or "otto",
+        password=_dash_password,
+    )
+    logger.info("dashboard_auth_enabled")
+else:
+    logger.warning("dashboard_auth_disabled_no_password")
 
 # Mount static folder
 static_dir = Path(__file__).parent / "static"
