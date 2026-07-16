@@ -1,0 +1,19 @@
+# Never bake secrets, local DB, or VCS into the image
+.env
+.env.*
+!.env.example
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+.git
+.gitignore
+.venv
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+site/
+node_modules/
+*.log

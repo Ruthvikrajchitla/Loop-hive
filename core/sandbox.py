@@ -18,11 +18,57 @@ from __future__ import annotations
 
 import ast
 import json as _json
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+# --- Small-instance safety (e.g. Northflank/Koyeb free tier) --------------------
+# The execution sandbox stays fully real (venv + pip install + import + pytest);
+# these knobs just keep it memory-frugal so it never OOM-kills the always-on
+# agent process. All are env-overridable.
+
+def _env_flag(name: str, default: bool) -> bool:
+    return os.getenv(name, str(default)).strip().lower() in ("1", "true", "yes")
+
+# Prefer prebuilt wheels over compiling C extensions from source (the #1 OOM cause).
+_PREFER_BINARY = _env_flag("SANDBOX_PREFER_BINARY", True)
+
+# Megaframeworks that reliably blow a 512MB–1GB box even just to install. A product
+# that "needs" these is scope-creep for a CLI/tool/site/extension/ebook — the guard
+# fails the build with a clear message so the builder finds a lighter approach.
+# Set SANDBOX_BLOCKED_PACKAGES="" to disable (e.g. on a bigger paid box).
+_DEFAULT_BLOCKED = (
+    "torch,torchvision,torchaudio,tensorflow,tensorflow-gpu,tensorflow-cpu,jax,jaxlib,"
+    "transformers,sentence-transformers,spacy,cupy,onnxruntime-gpu,vllm,xformers,"
+    "accelerate,bitsandbytes,deepspeed,paddlepaddle,mxnet"
+)
+_BLOCKED_PACKAGES = {
+    p.strip().lower().replace("_", "-")
+    for p in os.getenv("SANDBOX_BLOCKED_PACKAGES", _DEFAULT_BLOCKED).split(",")
+    if p.strip()
+}
+
+
+def _frugal_env() -> dict:
+    """Environment for sandbox subprocesses that minimizes memory use."""
+    env = dict(os.environ)
+    env["PIP_NO_CACHE_DIR"] = "1"
+    env["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    # Cap glibc per-thread arenas — cuts RSS of Python + pip noticeably on small boxes.
+    env.setdefault("MALLOC_ARENA_MAX", "2")
+    return env
+
+
+def _pip_install_cmd(py: str, *args: str) -> list[str]:
+    cmd = [str(py), "-m", "pip", "install", "-q", "--no-cache-dir"]
+    if _PREFER_BINARY:
+        cmd.append("--prefer-binary")
+    cmd.extend(args)
+    return cmd
 
 # Bare module-level calls that are safe/idiomatic (won't be flagged as side effects).
 _SAFE_MODULE_CALLS = {
@@ -152,6 +198,13 @@ def static_analysis(files: dict[str, str]) -> tuple[bool, str]:
         if nm and not nm.startswith("#") and nm.lower().replace("-", "_") in stdlib:
             issues.append(f"requirements.txt: `{nm}` is a standard-library module — remove it (pip can't install it).")
 
+    # Heavy megaframeworks would OOM a small always-on box — and a CLI/tool/site/
+    # extension/ebook never needs them. Flag so the builder picks a lighter approach.
+    for pkg in sorted(declared & _BLOCKED_PACKAGES):
+        issues.append(f"requirements.txt: `{pkg}` is too heavy for the deployment box — "
+                      f"use a lighter, dependency-minimal approach (stdlib / a small pure-Python "
+                      f"library / call a hosted API) instead of a large ML/native framework.")
+
     for path, content in files.items():
         if not path.endswith(".py"):
             continue
@@ -215,13 +268,16 @@ def execution_check(files: dict[str, str], install_timeout: int = 300, run_timeo
                 fp.parent.mkdir(parents=True, exist_ok=True)
                 fp.write_text(content or "", encoding="utf-8")
 
+            env = _frugal_env()
             venv = base / ".venv"
-            subprocess.run([sys.executable, "-m", "venv", str(venv)], capture_output=True, timeout=120)
+            subprocess.run([sys.executable, "-m", "venv", str(venv)],
+                           capture_output=True, timeout=120, env=env)
             py = venv / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
 
             if (base / "requirements.txt").exists():
-                r = subprocess.run([str(py), "-m", "pip", "install", "-q", "-r", "requirements.txt"],
-                                   cwd=str(base), capture_output=True, text=True, timeout=install_timeout)
+                r = subprocess.run(_pip_install_cmd(py, "-r", "requirements.txt"),
+                                   cwd=str(base), capture_output=True, text=True,
+                                   timeout=install_timeout, env=env)
                 if r.returncode != 0:
                     return False, f"[INSTALL FAILED] {r.stderr.strip()[-800:]}"
 
@@ -231,16 +287,18 @@ def execution_check(files: dict[str, str], install_timeout: int = 300, run_timeo
                     continue
                 mod_path = path[:-3].replace("/", ".")
                 r = subprocess.run([str(py), "-c", f"import importlib; importlib.import_module('{mod_path}')"],
-                                   cwd=str(base), capture_output=True, text=True, timeout=run_timeout)
+                                   cwd=str(base), capture_output=True, text=True,
+                                   timeout=run_timeout, env=env)
                 if r.returncode != 0:
                     logs.append(f"[IMPORT FAILED] {path}:\n{r.stderr.strip()[-500:]}")
 
             # Run tests if any.
             if any("test" in p for p in py_files):
-                subprocess.run([str(py), "-m", "pip", "install", "-q", "pytest"],
-                               cwd=str(base), capture_output=True, timeout=120)
+                subprocess.run(_pip_install_cmd(py, "pytest"),
+                               cwd=str(base), capture_output=True, timeout=120, env=env)
                 r = subprocess.run([str(py), "-m", "pytest", "-q", "--no-header"],
-                                   cwd=str(base), capture_output=True, text=True, timeout=run_timeout * 3)
+                                   cwd=str(base), capture_output=True, text=True,
+                                   timeout=run_timeout * 3, env=env)
                 if r.returncode not in (0, 5):  # 5 = no tests collected
                     logs.append(f"[TESTS FAILED]\n{(r.stdout + r.stderr).strip()[-800:]}")
     except subprocess.TimeoutExpired:
